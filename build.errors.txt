@@ -1,0 +1,11 @@
+  Geri yüklenecek projeler belirleniyor...
+  Geri yükleme için tüm projeler güncel.
+C:\Users\User\Desktop\Ertuğrul\Küçük\Hesapix\Program - Kopyala.md(10,1): error CS8802: Yalnızca bir derleme biriminde üst düzey deyimler olabilir. [C:\Users\User\Desktop\Ertuğrul\Küçük\Hesapix\Hesapix.csproj]
+
+Oluşturma BAŞARISIZ OLDU.
+
+C:\Users\User\Desktop\Ertuğrul\Küçük\Hesapix\Program - Kopyala.md(10,1): error CS8802: Yalnızca bir derleme biriminde üst düzey deyimler olabilir. [C:\Users\User\Desktop\Ertuğrul\Küçük\Hesapix\Hesapix.csproj]
+    0 Uyarı
+    1 Hata
+
+Geçen Süre 00:00:01.48

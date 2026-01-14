@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿/* using Microsoft.EntityFrameworkCore;
 using Hesapix.Data;
 using Hesapix.Models.DTOs.Sale;
 using Hesapix.Models.Entities;
@@ -263,6 +263,356 @@ namespace Hesapix.Services.Implementations
             {
                 return $"{prefix}0001";
             }
+
+            var lastNumber = int.Parse(lastSale.SaleNumber.Substring(prefix.Length));
+            return $"{prefix}{(lastNumber + 1):D4}";
+        }
+
+        private SaleDto MapToDto(Sale sale)
+        {
+            return new SaleDto
+            {
+                Id = sale.Id,
+                SaleNumber = sale.SaleNumber,
+                SaleDate = sale.SaleDate,
+                CustomerName = sale.CustomerName,
+                CustomerPhone = sale.CustomerPhone,
+                CustomerEmail = sale.CustomerEmail,
+                CustomerAddress = sale.CustomerAddress,
+                CustomerTaxNumber = sale.CustomerTaxNumber,
+                SubTotal = sale.SubTotal,
+                TaxAmount = sale.TaxAmount,
+                DiscountAmount = sale.DiscountAmount,
+                TotalAmount = sale.TotalAmount,
+                PaymentStatus = sale.PaymentStatus,
+                Notes = sale.Notes,
+                CreatedDate = sale.CreatedDate,
+                Items = sale.SaleItems?.Select(si => new SaleItemDto
+                {
+                    Id = si.Id,
+                    StockId = si.StockId,
+                    ProductName = si.ProductName,
+                    Quantity = si.Quantity,
+                    UnitPrice = si.UnitPrice,
+                    TaxRate = si.TaxRate,
+                    DiscountRate = si.DiscountRate,
+                    TotalPrice = si.TotalPrice
+                }).ToList() ?? new List<SaleItemDto>()
+            };
+        }
+
+        #endregion
+    }
+}
+*/ //Burada Eski Kod Yapısı Var!!
+using Microsoft.EntityFrameworkCore;
+using Hesapix.Data;
+using Hesapix.Models.DTOs.Sale;
+using Hesapix.Models.Entities;
+using Hesapix.Services.Interfaces;
+
+namespace Hesapix.Services.Implementations
+{
+    // Generic pagination class
+    public class PagedResult<T>
+    {
+        public List<T> Items { get; set; } = new List<T>();
+        public int TotalCount { get; set; }
+        public int Page { get; set; }
+        public int PageSize { get; set; }
+        public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
+    }
+
+    public class SaleService : ISaleService
+    {
+        private readonly ApplicationDbContext _context;
+
+        public SaleService(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+
+        #region CreateSale
+
+        public async Task<SaleDto> CreateSale(CreateSaleRequest request, int userId)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                var saleNumber = await GenerateSaleNumber(userId);
+
+                decimal subTotal = 0;
+                decimal taxAmount = 0;
+
+                var saleItems = new List<SaleItem>();
+
+                foreach (var item in request.Items)
+                {
+                    var stock = await _context.Stocks
+                        .FirstOrDefaultAsync(s => s.Id == item.StockId && s.UserId == userId && s.IsActive);
+
+                    if (stock == null)
+                        throw new Exception($"Stok bulunamadı: {item.StockId}");
+
+                    if (stock.Quantity < item.Quantity)
+                        throw new Exception($"{stock.ProductName} için yetersiz stok. Mevcut: {stock.Quantity}");
+
+                    var itemSubTotal = item.Quantity * item.UnitPrice;
+                    var discountAmount = itemSubTotal * (item.DiscountRate / 100);
+                    var afterDiscount = itemSubTotal - discountAmount;
+                    var itemTax = afterDiscount * (item.TaxRate / 100);
+                    var itemTotal = afterDiscount + itemTax;
+
+                    subTotal += afterDiscount;
+                    taxAmount += itemTax;
+
+                    saleItems.Add(new SaleItem
+                    {
+                        StockId = item.StockId,
+                        ProductName = stock.ProductName,
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        TaxRate = item.TaxRate,
+                        DiscountRate = item.DiscountRate,
+                        TotalPrice = itemTotal
+                    });
+
+                    stock.Quantity -= item.Quantity;
+                    stock.UpdatedDate = DateTime.UtcNow;
+                }
+
+                var totalAmount = subTotal + taxAmount - request.DiscountAmount;
+
+                var sale = new Sale
+                {
+                    UserId = userId,
+                    SaleNumber = saleNumber,
+                    SaleDate = request.SaleDate,
+                    CustomerName = request.CustomerName,
+                    CustomerPhone = request.CustomerPhone,
+                    CustomerEmail = request.CustomerEmail,
+                    CustomerAddress = request.CustomerAddress,
+                    CustomerTaxNumber = request.CustomerTaxNumber,
+                    SubTotal = subTotal,
+                    TaxAmount = taxAmount,
+                    DiscountAmount = request.DiscountAmount,
+                    TotalAmount = totalAmount,
+                    PaymentStatus = PaymentStatus.Pending,
+                    Notes = request.Notes,
+                    CreatedDate = DateTime.UtcNow,
+                    SaleItems = saleItems
+                };
+
+                _context.Sales.Add(sale);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return await GetSaleById(sale.Id, userId);
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region GetSales (paged)
+
+        // Pagination with total count
+        public async Task<PagedResult<SaleDto>> GetSales(int userId, int page = 1, int pageSize = 20, DateTime? startDate = null, DateTime? endDate = null)
+        {
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+
+            var query = _context.Sales
+                .Include(s => s.SaleItems)
+                .Where(s => s.UserId == userId);
+
+            if (startDate.HasValue)
+                query = query.Where(s => s.SaleDate >= startDate.Value);
+
+            if (endDate.HasValue)
+                query = query.Where(s => s.SaleDate <= endDate.Value);
+
+            var totalCount = await query.CountAsync();
+
+            var sales = await query
+                .OrderByDescending(s => s.SaleDate)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return new PagedResult<SaleDto>
+            {
+                Items = sales.Select(MapToDto).ToList(),
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        #endregion
+
+        #region GetPendingPaymentSales (paged)
+
+        public async Task<PagedResult<SaleDto>> GetPendingPaymentSales(int userId, int page = 1, int pageSize = 20)
+        {
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+
+            var query = _context.Sales
+                .Include(s => s.SaleItems)
+                .Where(s => s.UserId == userId &&
+                            (s.PaymentStatus == PaymentStatus.Pending ||
+                             s.PaymentStatus == PaymentStatus.PartialPaid));
+
+            var totalCount = await query.CountAsync();
+
+            var sales = await query
+                .OrderByDescending(s => s.SaleDate)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return new PagedResult<SaleDto>
+            {
+                Items = sales.Select(MapToDto).ToList(),
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        #endregion
+
+        #region GetSaleById / GetSaleByNumber
+
+        public async Task<SaleDto> GetSaleById(int id, int userId)
+        {
+            var sale = await _context.Sales
+                .Include(s => s.SaleItems)
+                .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+
+            if (sale == null)
+                throw new Exception("Satış bulunamadı");
+
+            return MapToDto(sale);
+        }
+
+        public async Task<SaleDto> GetSaleByNumber(string saleNumber, int userId)
+        {
+            var sale = await _context.Sales
+                .Include(s => s.SaleItems)
+                .FirstOrDefaultAsync(s => s.SaleNumber == saleNumber && s.UserId == userId);
+
+            if (sale == null)
+                throw new Exception("Satış bulunamadı");
+
+            return MapToDto(sale);
+        }
+
+        #endregion
+
+        #region CancelSale
+
+        public async Task<bool> CancelSale(int id, int userId)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                var sale = await _context.Sales
+                    .Include(s => s.SaleItems)
+                    .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+
+                if (sale == null)
+                    return false;
+
+                if (sale.PaymentStatus == PaymentStatus.Paid)
+                    throw new Exception("Ödemesi tamamlanmış satışlar iptal edilemez");
+
+                foreach (var item in sale.SaleItems)
+                {
+                    var stock = await _context.Stocks.FindAsync(item.StockId);
+                    if (stock != null)
+                    {
+                        stock.Quantity += item.Quantity;
+                        stock.UpdatedDate = DateTime.UtcNow;
+                    }
+                }
+
+                sale.PaymentStatus = PaymentStatus.Cancelled;
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return true;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region UpdateSalePaymentStatus
+
+        public async Task<bool> UpdateSalePaymentStatus(int saleId, int userId)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                var sale = await _context.Sales
+                    .Include(s => s.Payments)
+                    .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId);
+
+                if (sale == null)
+                    return false;
+
+                var totalPaid = sale.Payments
+                    .Where(p => p.PaymentType == PaymentType.Income)
+                    .Sum(p => p.Amount);
+
+                if (totalPaid >= sale.TotalAmount)
+                    sale.PaymentStatus = PaymentStatus.Paid;
+                else if (totalPaid > 0)
+                    sale.PaymentStatus = PaymentStatus.PartialPaid;
+                else
+                    sale.PaymentStatus = PaymentStatus.Pending;
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return true;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region Private Methods
+
+        private async Task<string> GenerateSaleNumber(int userId)
+        {
+            var today = DateTime.Today;
+            var prefix = $"S{today:yyyyMMdd}";
+
+            var lastSale = await _context.Sales
+                .Where(s => s.UserId == userId && s.SaleNumber.StartsWith(prefix))
+                .OrderByDescending(s => s.SaleNumber)
+                .FirstOrDefaultAsync();
+
+            if (lastSale == null)
+                return $"{prefix}0001";
 
             var lastNumber = int.Parse(lastSale.SaleNumber.Substring(prefix.Length));
             return $"{prefix}{(lastNumber + 1):D4}";

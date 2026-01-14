@@ -8,6 +8,7 @@ namespace Hesapix.Services.Interfaces
         Task<AuthResponse> Login(LoginRequest request);
         Task<bool> CheckSubscription(int userId);
         Task<bool> VerifyEmail(string email, string verificationCode);
+        Task<bool> RequestPasswordReset(string email);
         Task<bool> ResetPassword(string email, string newPassword, string resetToken);
     }
 }

@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Hesapix.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260112104518_InitialCreate")]
+    [Migration("20260113182201_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -42,14 +42,14 @@ namespace Hesapix.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<DateTime?>("CheckDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("CheckNumber")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
                     b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("CustomerName")
                         .IsRequired()
@@ -61,7 +61,7 @@ namespace Hesapix.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.Property<DateTime>("PaymentDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<int>("PaymentMethod")
                         .HasColumnType("integer");
@@ -97,7 +97,7 @@ namespace Hesapix.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("CustomerAddress")
                         .HasMaxLength(500)
@@ -132,7 +132,7 @@ namespace Hesapix.Migrations
                         .HasColumnType("integer");
 
                     b.Property<DateTime>("SaleDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("SaleNumber")
                         .IsRequired()
@@ -227,7 +227,7 @@ namespace Hesapix.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Description")
                         .HasMaxLength(500)
@@ -267,7 +267,7 @@ namespace Hesapix.Migrations
                         .HasColumnType("character varying(20)");
 
                     b.Property<DateTime?>("UpdatedDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
@@ -293,7 +293,7 @@ namespace Hesapix.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<DateTime>("EndDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -305,7 +305,7 @@ namespace Hesapix.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime>("StartDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("TransactionId")
                         .HasMaxLength(200)
@@ -338,12 +338,25 @@ namespace Hesapix.Migrations
                         .HasColumnType("character varying(200)");
 
                     b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("EmailVerificationCode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime?>("EmailVerificationExpiry")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("EmailVerified")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("integer");
 
                     b.Property<string>("FullName")
                         .IsRequired()
@@ -353,9 +366,25 @@ namespace Hesapix.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("LastFailedLoginDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("LastLoginDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("LockoutEnd")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("PasswordResetExpiry")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("PasswordResetToken")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
@@ -365,6 +394,12 @@ namespace Hesapix.Migrations
                     b.Property<string>("TaxNumber")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.HasKey("Id");
 
@@ -464,8 +499,7 @@ namespace Hesapix.Migrations
 
                     b.Navigation("Stocks");
 
-                    b.Navigation("Subscription")
-                        .IsRequired();
+                    b.Navigation("Subscription");
                 });
 #pragma warning restore 612, 618
         }

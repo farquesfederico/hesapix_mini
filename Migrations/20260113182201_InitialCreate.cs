@@ -22,10 +22,21 @@ namespace Hesapix.Migrations
                     PasswordHash = table.Column<string>(type: "text", nullable: false),
                     FullName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     PhoneNumber = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
-                    CreatedDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CompanyName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
-                    TaxNumber = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true)
+                    TaxNumber = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    EmailVerified = table.Column<bool>(type: "boolean", nullable: false),
+                    EmailVerificationCode = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
+                    EmailVerificationExpiry = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
+                    PasswordResetToken = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    PasswordResetExpiry = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
+                    FailedLoginAttempts = table.Column<int>(type: "integer", nullable: false),
+                    LastLoginDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
+                    LastFailedLoginDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
+                    LockoutEnd = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
+                    UpdatedDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
+                    UpdatedBy = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -40,7 +51,7 @@ namespace Hesapix.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     UserId = table.Column<int>(type: "integer", nullable: false),
                     SaleNumber = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    SaleDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    SaleDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
                     CustomerName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CustomerPhone = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),
                     CustomerEmail = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
@@ -52,7 +63,7 @@ namespace Hesapix.Migrations
                     TotalAmount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     PaymentStatus = table.Column<int>(type: "integer", nullable: false),
                     Notes = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
-                    CreatedDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -82,8 +93,8 @@ namespace Hesapix.Migrations
                     SalePrice = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     MinimumStock = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: true),
                     Barcode = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
-                    CreatedDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    UpdatedDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CreatedDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
+                    UpdatedDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
@@ -106,8 +117,8 @@ namespace Hesapix.Migrations
                     UserId = table.Column<int>(type: "integer", nullable: false),
                     Type = table.Column<int>(type: "integer", nullable: false),
                     Platform = table.Column<int>(type: "integer", nullable: false),
-                    StartDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    EndDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    StartDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
+                    EndDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     Amount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     TransactionId = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
@@ -132,17 +143,17 @@ namespace Hesapix.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     UserId = table.Column<int>(type: "integer", nullable: false),
                     SaleId = table.Column<int>(type: "integer", nullable: true),
-                    PaymentDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    PaymentDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
                     CustomerName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     Amount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     PaymentType = table.Column<int>(type: "integer", nullable: false),
                     PaymentMethod = table.Column<int>(type: "integer", nullable: false),
                     CheckNumber = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
-                    CheckDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    CheckDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
                     BankName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     ReferenceNumber = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     Notes = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
-                    CreatedDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false)
                 },
                 constraints: table =>
                 {

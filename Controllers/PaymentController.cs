@@ -8,7 +8,7 @@ using System.Security.Claims;
 namespace Hesapix.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/v1/[controller]")]
     [Authorize]
     public class PaymentController : ControllerBase
     {
@@ -54,7 +54,12 @@ namespace Hesapix.Controllers
         {
             try
             {
-                var payments = await _paymentService.GetPayments(GetUserId(), startDate, endDate);
+                var payments = await _paymentService.GetPayments(
+                    userId: GetUserId(),
+                    page: 1,
+                    pageSize:20,
+                    startDate: startDate,
+                    endDate: endDate);
                 return Ok(payments);
             }
             catch (Exception ex)
@@ -126,7 +131,12 @@ namespace Hesapix.Controllers
         {
             try
             {
-                var payments = await _paymentService.GetPayments(GetUserId(), startDate, endDate);
+                var payments = await _paymentService.GetPayments(
+                    userId: GetUserId(),
+                    page:1,
+                    pageSize: 20,
+                    startDate: startDate,
+                    endDate: endDate);
                 var incomes = payments.Where(p => p.PaymentType == PaymentType.Income).ToList();
                 return Ok(incomes);
             }
@@ -145,7 +155,7 @@ namespace Hesapix.Controllers
         {
             try
             {
-                var payments = await _paymentService.GetPayments(GetUserId(), startDate, endDate);
+                var payments = await _paymentService.GetPayments(userId: GetUserId(), page: 1, pageSize: 20, startDate: startDate, endDate: endDate);
                 var expenses = payments.Where(p => p.PaymentType == PaymentType.Expense).ToList();
                 return Ok(expenses);
             }
@@ -189,7 +199,7 @@ namespace Hesapix.Controllers
         {
             try
             {
-                var payments = await _paymentService.GetPayments(GetUserId(), startDate, endDate);
+                var payments = await _paymentService.GetPayments(userId: GetUserId(), page: 1, pageSize: 20, startDate: startDate, endDate: endDate);
 
                 var statistics = new
                 {

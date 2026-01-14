@@ -7,7 +7,7 @@ using System.Security.Claims;
 namespace Hesapix.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/v1/[controller]")]
     [Authorize]
     public class SaleController : ControllerBase
     {
@@ -45,14 +45,24 @@ namespace Hesapix.Controllers
         }
 
         /// <summary>
-        /// Tüm satışları getir
+        /// Tüm satışları getir (sayfalama destekli)
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
+        public async Task<IActionResult> GetAll(
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
         {
             try
             {
-                var sales = await _saleService.GetSales(GetUserId(), startDate, endDate);
+                var sales = await _saleService.GetSales(
+                    userId: GetUserId(),
+                    page: page,
+                    pageSize: pageSize,
+                    startDate: startDate,
+                    endDate: endDate);
+
                 return Ok(sales);
             }
             catch (Exception ex)
@@ -142,18 +152,29 @@ namespace Hesapix.Controllers
         }
 
         /// <summary>
-        /// Satış istatistikleri
+        /// Satış istatistikleri (sayfalama destekli)
         /// </summary>
         [HttpGet("statistics")]
-        public async Task<IActionResult> GetStatistics([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
+        public async Task<IActionResult> GetStatistics(
+    [FromQuery] DateTime? startDate,
+    [FromQuery] DateTime? endDate,
+    [FromQuery] int page = 1,
+    [FromQuery] int pageSize = 20)
         {
             try
             {
-                var sales = await _saleService.GetSales(GetUserId(), startDate, endDate);
+                var pagedSales = await _saleService.GetSales(
+                    userId: GetUserId(),
+                    page: page,
+                    pageSize: pageSize,
+                    startDate: startDate,
+                    endDate: endDate);
+
+                var sales = pagedSales.Items; // İşte LINQ metodlarını kullanacağımız liste
 
                 var statistics = new
                 {
-                    totalSales = sales.Count,
+                    totalSales = pagedSales.TotalCount, // tüm kayıt sayısı
                     totalAmount = sales.Sum(s => s.TotalAmount),
                     paidSales = sales.Count(s => s.PaymentStatus == Models.Entities.PaymentStatus.Paid),
                     pendingSales = sales.Count(s => s.PaymentStatus == Models.Entities.PaymentStatus.Pending),
