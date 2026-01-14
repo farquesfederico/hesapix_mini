@@ -18,6 +18,8 @@
         public DateTime? UpdatedDate { get; set; }
         public bool IsActive { get; set; }
 
+       /* public decimal TaxRate { get; set; } // KDV oranı */
+
         // Navigation Properties
         public virtual User User { get; set; }
         public virtual ICollection<SaleItem> SaleItems { get; set; }
