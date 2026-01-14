@@ -222,6 +222,17 @@ namespace Hesapix.Services.Implementations
                 return true;
             }
 
+        public async Task<bool> ResetPassword(string email, string newPassword, string resetToken)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+
+            if (user == null || user.PasswordResetToken != resetToken)
+            {
+                // Güvenlik: Email bulunamasa bile başarılı dön
+                _logger.LogWarning("Password reset requested for non-existent email: {Email}", email);
+                return true;
+            }
+
             // Reset token oluştur
             var resetToken = GenerateSecureToken();
             var resetExpiry = DateTime.UtcNow.AddHours(1);
@@ -327,10 +338,7 @@ namespace Hesapix.Services.Implementations
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Email, user.Email),
                 new Claim(ClaimTypes.Name, user.FullName),
-                new Claim("EmailVerified", user.EmailVerified.ToString()),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
-                
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 
             var tokenExpiration = DateTime.UtcNow.AddDays(7); // 7 gün
