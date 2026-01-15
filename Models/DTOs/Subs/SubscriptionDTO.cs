@@ -1,17 +1,18 @@
-﻿namespace Hesapix.Models.DTOs.Subs
+﻿using Hesapix.Models.Enums;
+
+namespace Hesapix.Models.DTOs.Subscription;
+
+public class SubscriptionDto
 {
-    public class SubscriptionDTO
-    {
-        public int Id { get; set; }
-        public int UserId { get; set; }
-        public string UserFullName { get; set; } = string.Empty;
-        public string UserEmail { get; set; } = string.Empty;
-        public string PlanType { get; set; } = string.Empty;
-        public DateTime StartDate { get; set; }
-        public DateTime? EndDate { get; set; }
-        public string Status { get; set; } = string.Empty;
-        public decimal Price { get; set; }
-        public bool IsActive { get; set; }
-        public int? DaysRemaining { get; set; }
-    }
+    public int Id { get; set; }
+    public SubscriptionPlanType PlanType { get; set; }
+    public SubscriptionStatus Status { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public bool IsTrial { get; set; }
+    public bool AutoRenew { get; set; }
+    public decimal Price { get; set; }
+    public decimal FinalPrice { get; set; }
+    public int DaysRemaining { get; set; }
+    public bool IsActive { get; set; }
 }

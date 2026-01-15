@@ -1,9 +1,10 @@
-﻿namespace Hesapix.Models.Enums
+﻿namespace Hesapix.Models.Enums;
+
+public enum PaymentStatus
 {
-    public enum PaymentStatus
-    {
-        Pending = 0,
-        Paid = 1,
-        Cancelled = 2
-    }
+    Pending = 0,
+    Paid = 1,
+    Partial = 2,
+    Cancelled = 3,
+    Refunded = 4
 }

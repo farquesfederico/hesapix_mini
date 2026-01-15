@@ -1,9 +1,10 @@
-﻿namespace Hesapix.Services.Interfaces
+﻿namespace Hesapix.Services.Interfaces;
+
+public interface IEmailService
 {
-    public interface IEmailService
-    {
-        Task SendVerificationEmailAsync(string email, string name, string verificationCode);
-        Task SendPasswordResetEmailAsync(string email, string name, string resetToken);
-        Task SendInvoiceEmailAsync(string email, string name, byte[] pdfBytes, string invoiceNumber);
-    }
+    Task<bool> SendEmailAsync(string toEmail, string subject, string body);
+    Task<bool> SendVerificationEmailAsync(string toEmail, string verificationLink);
+    Task<bool> SendPasswordResetEmailAsync(string toEmail, string resetLink);
+    Task<bool> SendSubscriptionConfirmationEmailAsync(string toEmail, string companyName, DateTime endDate);
+    Task<bool> SendSubscriptionExpirationWarningAsync(string toEmail, string companyName, int daysRemaining);
 }

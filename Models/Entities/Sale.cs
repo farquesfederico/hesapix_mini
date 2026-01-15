@@ -1,55 +1,36 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+﻿using Hesapix.Models.Enums;
 
-namespace Hesapix.Models.Entities
+namespace Hesapix.Models.Entities;
+
+public class Sale
 {
-    public class Sale
-    {
-        [Key]
-        public int Id { get; set; }
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    public string SaleNumber { get; set; } = string.Empty;
+    public DateTime SaleDate { get; set; }
 
-        [Required]
-        public int UserId { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string? CustomerTaxNumber { get; set; }
+    public string? CustomerPhone { get; set; }
+    public string? CustomerAddress { get; set; }
 
-        [Required]
-        [MaxLength(100)]
-        public string CustomerName { get; set; } = string.Empty;
+    public decimal SubTotal { get; set; }
+    public decimal TaxRate { get; set; } = 18;
+    public decimal TaxAmount { get; set; }
+    public decimal DiscountAmount { get; set; } = 0;
+    public decimal TotalAmount { get; set; }
 
-        [MaxLength(20)]
-        public string? CustomerPhone { get; set; }
+    public PaymentMethod PaymentMethod { get; set; }
+    public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Pending;
 
-        [MaxLength(100)]
-        [EmailAddress]
-        public string? CustomerEmail { get; set; }
+    public string? Notes { get; set; }
 
-        [Required]
-        public DateTime SaleDate { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 
-        [Required]
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal TotalAmount { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal PaidAmount { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal RemainingAmount { get; set; }
-
-        [MaxLength(50)]
-        public string? PaymentMethod { get; set; }
-
-        [MaxLength(500)]
-        public string? Notes { get; set; }
-
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-        public DateTime? UpdatedAt { get; set; }
-
-        // Navigation Properties
-        [ForeignKey(nameof(UserId))]
-        public virtual User User { get; set; } = null!;
-
-        public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
-        public virtual ICollection<Payment> Payments { get; set; } = new List<Payment>();
-    }
+    // Navigation
+    public virtual User User { get; set; } = null!;
+    public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
 }

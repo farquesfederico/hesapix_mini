@@ -1,20 +1,14 @@
-﻿
-using Hesapix.Controllers;
-using Hesapix.Models.Common;
-using Hesapix.Models.DTOs.Subs;
-using Hesapix.Models.DTOs.Subscription;
+﻿using Hesapix.Models.DTOs.Subscription;
 
-namespace Hesapix.Services.Interfaces
+namespace Hesapix.Services.Interfaces;
+
+public interface ISubscriptionService
 {
-    public interface ISubscriptionService
-    {
-        Task<ApiResponse<SubscriptionDTO>> CreateSubscriptionAsync(CreateSubscriptionRequest request);
-        Task<ApiResponse<SubscriptionDTO>> UpdateSubscriptionAsync(int subscriptionId, UpdateSubscriptionRequest request);
-        Task<ApiResponse<bool>> DeleteSubscriptionAsync(int subscriptionId);
-        Task<ApiResponse<List<SubscriptionDTO>>> GetAllSubscriptionsAsync(int page, int pageSize, string? status);
-        Task<ApiResponse<SubscriptionDTO>> GetSubscriptionByIdAsync(int subscriptionId);
-        Task<ApiResponse<SubscriptionDTO>> GetUserSubscriptionAsync(int userId);
-        Task<ApiResponse<AdminStatisticsDto>> GetAdminStatisticsAsync();
-        Task<ApiResponse<bool>> CheckAndUpdateExpiredSubscriptionsAsync();
-    }
+    Task<(bool Success, string Message, object? Data)> CreateSubscriptionAsync(int userId, CreateSubscriptionRequest request);
+    Task<SubscriptionDto?> GetActiveSubscriptionAsync(int userId);
+    Task<bool> HasActiveSubscriptionAsync(int userId);
+    Task<(bool Success, string Message)> CancelSubscriptionAsync(int userId);
+    Task<(bool Success, string Message)> HandleIyzicoWebhookAsync(string payload);
+    Task ProcessExpiredSubscriptionsAsync();
+    Task<decimal> GetSubscriptionPriceAsync(CreateSubscriptionRequest request);
 }

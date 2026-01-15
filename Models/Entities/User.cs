@@ -1,38 +1,41 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Hesapix.Models.Enums;
 
-namespace Hesapix.Models.Entities
+namespace Hesapix.Models.Entities;
+
+public class User
 {
-    public class User
-    {
-        [Key]
-        public int Id { get; set; }
+    public int Id { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public string CompanyName { get; set; } = string.Empty;
+    public string? TaxNumber { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
+    public UserRole Role { get; set; } = UserRole.User;
 
-        [Required]
-        [MaxLength(100)]
-        public string FullName { get; set; } = string.Empty;
+    // Email Verification
+    public bool IsEmailVerified { get; set; } = false;
+    public string? EmailVerificationToken { get; set; }
+    public DateTime? EmailVerificationTokenExpiry { get; set; }
 
-        [Required]
-        [EmailAddress]
-        [MaxLength(100)]
-        public string Email { get; set; } = string.Empty;
+    // Password Reset
+    public string? PasswordResetToken { get; set; }
+    public DateTime? PasswordResetTokenExpiry { get; set; }
 
-        [Required]
-        public string PasswordHash { get; set; } = string.Empty;
+    // Refresh Token
+    public string? RefreshToken { get; set; }
+    public DateTime? RefreshTokenExpiry { get; set; }
 
-        [Required]
-        [MaxLength(50)]
-        public string Role { get; set; } = "User"; // "Admin" veya "User"
+    // Tracking
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-        public DateTime? LastLoginAt { get; set; }
-
-        public bool IsActive { get; set; } = true;
-
-        // Navigation Properties
-        public virtual ICollection<Sale> Sales { get; set; } = new List<Sale>();
-        public virtual ICollection<Payment> Payments { get; set; } = new List<Payment>();
-        public virtual ICollection<Stok> Stocks { get; set; } = new List<Stok>();
-        public virtual Subscription? Subscription { get; set; }
-    }
+    // Navigation Properties
+    public virtual ICollection<Sale> Sales { get; set; } = new List<Sale>();
+    public virtual ICollection<Payment> Payments { get; set; } = new List<Payment>();
+    public virtual ICollection<Stok> Stocks { get; set; } = new List<Stok>();
+    public virtual ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
 }

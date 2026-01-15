@@ -1,225 +1,54 @@
-﻿/*
+﻿using Hesapix.Models.Common;
+using Serilog;
 using System.Net;
 using System.Text.Json;
-using Hesapix.Models.Common;
 
-namespace Hesapix.Middleware
+namespace Hesapix.Middleware;
+
+public class GlobalExceptionMiddleware
 {
-    public class GlobalExceptionMiddleware
+    private readonly RequestDelegate _next;
+
+    public GlobalExceptionMiddleware(RequestDelegate next)
     {
-        private readonly RequestDelegate _next;
-        private readonly ILogger<GlobalExceptionMiddleware> _logger;
-        private readonly IHostEnvironment _environment;
+        _next = next;
+    }
 
-        public GlobalExceptionMiddleware(
-            RequestDelegate next,
-            ILogger<GlobalExceptionMiddleware> logger,
-            IHostEnvironment environment)
+    public async Task InvokeAsync(HttpContext context)
+    {
+        try
         {
-            _next = next;
-            _logger = logger;
-            _environment = environment;
+            await _next(context);
         }
-
-        public async Task InvokeAsync(HttpContext context)
+        catch (Exception ex)
         {
-            try
-            {
-                await _next(context);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "An unhandled exception occurred");
-                await HandleExceptionAsync(context, ex);
-            }
-        }
-
-        private async Task HandleExceptionAsync(HttpContext context, Exception exception)
-        {
-            context.Response.ContentType = "application/json";
-
-            var response = new ApiResponse<object>
-            {
-                Success = false,
-                Message = "An error occurred while processing your request"
-            };
-
-            switch (exception)
-            {
-                case UnauthorizedAccessException:
-                    context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-                    response.Message = "Unauthorized access";
-                    break;
-
-                case KeyNotFoundException:
-                    context.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                    response.Message = exception.Message;
-                    break;
-
-                case ArgumentException:
-                case InvalidOperationException:
-                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                    response.Message = exception.Message;
-                    break;
-
-                case ValidationException validationEx:
-                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                    response.Message = "Validation failed";
-                    response.Errors = validationEx.Errors.ToList();
-                    break;
-
-                default:
-                    context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-                    response.Message = _environment.IsDevelopment()
-                        ? exception.Message
-                        : "An internal server error occurred";
-                    break;
-            }
-
-            if (_environment.IsDevelopment())
-            {
-                response.Data = new
-                {
-                    exception.Message,
-                    exception.StackTrace,
-                    InnerException = exception.InnerException?.Message
-                };
-            }
-
-            var jsonResponse = JsonSerializer.Serialize(response, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-
-            await context.Response.WriteAsync(jsonResponse);
+            Log.Error(ex, "Unhandled exception occurred");
+            await HandleExceptionAsync(context, ex);
         }
     }
 
-    public class ValidationException : Exception
+    private static Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
-        public IEnumerable<string> Errors { get; }
+        context.Response.ContentType = "application/json";
+        context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 
-        public ValidationException(IEnumerable<string> errors) : base("Validation failed")
+        var response = ApiResponse.ErrorResponse(
+            "Bir hata oluştu. Lütfen daha sonra tekrar deneyiniz.",
+            new List<string> { exception.Message }
+        );
+
+        // Development ortamında detaylı hata göster
+        if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development")
         {
-            Errors = errors;
+            response.Errors.Add($"StackTrace: {exception.StackTrace}");
         }
 
-        public ValidationException(string error) : base("Validation failed")
+        var options = new JsonSerializerOptions
         {
-            Errors = new[] { error };
-        }
-    }
-}
-*/ //BURADA ESKİ KODLAR VAR
-using System.Net;
-using System.Text.Json;
-using Hesapix.Models.Common;
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
 
-namespace Hesapix.Middleware
-{
-    public class GlobalExceptionMiddleware
-    {
-        private readonly RequestDelegate _next;
-        private readonly ILogger<GlobalExceptionMiddleware> _logger;
-        private readonly IHostEnvironment _environment;
-
-        public GlobalExceptionMiddleware(
-            RequestDelegate next,
-            ILogger<GlobalExceptionMiddleware> logger,
-            IHostEnvironment environment)
-        {
-            _next = next;
-            _logger = logger;
-            _environment = environment;
-        }
-
-        public async Task InvokeAsync(HttpContext context)
-        {
-            try
-            {
-                await _next(context);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "An unhandled exception occurred");
-                await HandleExceptionAsync(context, ex);
-            }
-        }
-
-        private async Task HandleExceptionAsync(HttpContext context, Exception exception)
-        {
-            context.Response.ContentType = "application/json";
-
-            var response = new ApiResponse<object>
-            {
-                Success = false,
-                Message = "An error occurred while processing your request"
-            };
-
-            switch (exception)
-            {
-                case UnauthorizedAccessException:
-                    context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-                    response.Message = "Unauthorized access";
-                    break;
-
-                case KeyNotFoundException:
-                    context.Response.StatusCode = (int)HttpStatusCode.NotFound;
-                    response.Message = exception.Message;
-                    break;
-
-                case ArgumentException:
-                case InvalidOperationException:
-                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                    response.Message = exception.Message;
-                    break;
-
-                case ValidationException validationEx:
-                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                    response.Message = "Validation failed";
-                    response.Errors = validationEx.Errors.ToList();
-                    break;
-
-                default:
-                    context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-                    response.Message = _environment.IsDevelopment()
-                        ? exception.Message
-                        : "An internal server error occurred";
-                    break;
-            }
-
-            if (_environment.IsDevelopment())
-            {
-                response.Data = new
-                {
-                    exception.Message,
-                    exception.StackTrace,
-                    InnerException = exception.InnerException?.Message
-                };
-            }
-
-            var jsonResponse = JsonSerializer.Serialize(response, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-
-            await context.Response.WriteAsync(jsonResponse);
-        }
-    }
-
-    // ValidationException tipi
-    public class ValidationException : Exception
-    {
-        public IEnumerable<string> Errors { get; }
-
-        public ValidationException(IEnumerable<string> errors) : base("Validation failed")
-        {
-            Errors = errors;
-        }
-
-        public ValidationException(string error) : base("Validation failed")
-        {
-            Errors = new[] { error };
-        }
+        var result = JsonSerializer.Serialize(response, options);
+        return context.Response.WriteAsync(result);
     }
 }

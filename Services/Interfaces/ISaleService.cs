@@ -1,24 +1,17 @@
-﻿using Hesapix.Models.DTOs.Sale;
-using Hesapix.Services.Implementations;
-using Hesapix.Models.Common;
+﻿using Hesapix.Models.Common;
+using Hesapix.Models.DTOs.Sale;
 
+namespace Hesapix.Services.Interfaces;
 
-namespace Hesapix.Services.Interfaces
+public interface ISaleService
 {
-    public interface ISaleService
-    {
-        Task<SaleDto> CreateSale(CreateSaleRequest request, int userId);
-
-        // Pagination destekli
-        Task<PagedResult<SaleDto>> GetSales(int userId, int page = 1, int pageSize = 20, DateTime? startDate = null, DateTime? endDate = null);
-
-        Task<SaleDto> GetSaleById(int id, int userId);
-        Task<SaleDto> GetSaleByNumber(string saleNumber, int userId);
-        Task<bool> CancelSale(int id, int userId);
-
-        // Pagination destekli
-        Task<PagedResult<SaleDto>> GetPendingPaymentSales(int userId, int page = 1, int pageSize = 20);
-
-        Task<bool> UpdateSalePaymentStatus(int saleId, int userId);
-    }
+    Task<PagedResult<SaleDto>> GetSalesAsync(int userId, int pageNumber = 1, int pageSize = 10, DateTime? startDate = null, DateTime? endDate = null);
+    Task<SaleDto?> GetSaleByIdAsync(int id, int userId);
+    Task<SaleDto?> GetSaleByNumberAsync(string saleNumber, int userId);
+    Task<(bool Success, string Message, SaleDto? Data)> CreateSaleAsync(CreateSaleRequest request, int userId);
+    Task<(bool Success, string Message, SaleDto? Data)> UpdateSaleAsync(int id, CreateSaleRequest request, int userId);
+    Task<(bool Success, string Message)> DeleteSaleAsync(int id, int userId);
+    Task<(bool Success, string Message)> CancelSaleAsync(int id, int userId);
+    Task<(bool Success, string Message)> UpdateSalePaymentStatusAsync(int id, int userId);
+    Task<PagedResult<SaleDto>> GetPendingPaymentSalesAsync(int userId, int pageNumber = 1, int pageSize = 10);
 }

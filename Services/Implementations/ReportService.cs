@@ -1,122 +1,99 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Hesapix.Data;
 using Hesapix.Models.DTOs.Report;
-using Hesapix.Models.Entities;
+using Hesapix.Models.Enums;
 using Hesapix.Services.Interfaces;
-using System.Globalization;
-using Hesapix.Data;
-using Hesapix.Data;
+using Microsoft.EntityFrameworkCore;
 
-namespace Hesapix.Services.Implementations
+namespace Hesapix.Services.Implementations;
+
+public class ReportService : IReportService
 {
-    public class ReportService : IReportService
+    private readonly ApplicationDbContext _context;
+
+    public ReportService(ApplicationDbContext context)
     {
-        private readonly ApplicationDbContext _context;
+        _context = context;
+    }
 
-        public ReportService(ApplicationDbContext context)
-        {
-            _context = context;
-        }
+    public async Task<DashboardReportDto> GetDashboardReportAsync(int userId, DateTime? startDate = null, DateTime? endDate = null)
+    {
+        startDate ??= DateTime.UtcNow.AddMonths(-1);
+        endDate ??= DateTime.UtcNow;
 
-        public async Task<DashboardReportDto> GetDashboardReport(int userId, DateTime? startDate = null, DateTime? endDate = null)
-        {
-            // Tarih aralığı belirtilmemişse son 30 gün
-            startDate ??= DateTime.Today.AddDays(-30);
-            endDate ??= DateTime.Today;
+        // Satış toplamları
+        var salesQuery = _context.Sales
+            .Where(s => s.UserId == userId
+                && s.SaleDate >= startDate
+                && s.SaleDate <= endDate
+                && s.PaymentStatus != PaymentStatus.Cancelled);
 
-            // Satışlar
-            var sales = await _context.Sales
-                .Where(s => s.UserId == userId &&
-                           s.SaleDate >= startDate &&
-                           s.SaleDate <= endDate &&
-                           s.PaymentStatus != PaymentStatus.Cancelled)
-                .ToListAsync();
+        var totalSales = await salesQuery.SumAsync(s => (decimal?)s.TotalAmount) ?? 0;
+        var pendingSalesCount = await salesQuery.CountAsync(s => s.PaymentStatus == PaymentStatus.Pending);
 
-            // Ödemeler
-            var payments = await _context.Payments
-                .Where(p => p.UserId == userId &&
-                           p.PaymentDate >= startDate &&
-                           p.PaymentDate <= endDate)
-                .ToListAsync();
+        // Gelir/Gider
+        var paymentsQuery = _context.Payments
+            .Where(p => p.UserId == userId
+                && p.PaymentDate >= startDate
+                && p.PaymentDate <= endDate);
 
-            // Bekleyen ödemeler
-            var pendingSales = await _context.Sales
-                .Where(s => s.UserId == userId &&
-                           (s.PaymentStatus == PaymentStatus.Pending ||
-                            s.PaymentStatus == PaymentStatus.PartialPaid))
-                .ToListAsync();
+        var totalIncome = await paymentsQuery
+            .Where(p => p.PaymentType == PaymentType.Income)
+            .SumAsync(p => (decimal?)p.Amount) ?? 0;
 
-            // Düşük stoklar
-            var lowStoks = await _context.Stocks
-                .Where(s => s.UserId == userId &&
-                           s.IsActive &&
-                           s.MinimumStock.HasValue &&
-                           s.Quantity <= s.MinimumStock.Value)
-                .CountAsync();
+        var totalExpense = await paymentsQuery
+            .Where(p => p.PaymentType == PaymentType.Expense)
+            .SumAsync(p => (decimal?)p.Amount) ?? 0;
 
-            // En çok satan ürünler
-            var topProducts = await _context.SaleItems
-                .Include(si => si.Sale)
-                .Where(si => si.Sale.UserId == userId &&
-                            si.Sale.SaleDate >= startDate &&
-                            si.Sale.SaleDate <= endDate &&
-                            si.Sale.PaymentStatus != PaymentStatus.Cancelled)
-                .GroupBy(si => si.ProductName)
-                .Select(g => new TopSellingProductDto
-                {
-                    ProductName = g.Key,
-                    TotalQuantity = g.Sum(si => si.Quantity),
-                    TotalAmount = g.Sum(si => si.TotalPrice)
-                })
-                .OrderByDescending(p => p.TotalAmount)
-                .Take(5)
-                .ToListAsync();
+        // Stok bilgileri
+        var stocksQuery = _context.Stocks.Where(s => s.UserId == userId && s.IsActive);
+        var totalProductCount = await stocksQuery.CountAsync();
+        var lowStockCount = await stocksQuery.CountAsync(s => s.Quantity <= s.MinimumStock);
 
-            // Aylık satışlar (son 6 ay)
-            var sixMonthsAgo = DateTime.Today.AddMonths(-6);
-            var monthlySalesData = await _context.Sales
-                .Where(s => s.UserId == userId &&
-                           s.SaleDate >= sixMonthsAgo &&
-                           s.PaymentStatus != PaymentStatus.Cancelled)
-                .GroupBy(s => new { s.SaleDate.Year, s.SaleDate.Month })
-                .Select(g => new MonthlySalesDto
-                {
-                    Year = g.Key.Year,
-                    Month = g.Key.Month,
-                    MonthName = CultureInfo.GetCultureInfo("tr-TR").DateTimeFormat.GetMonthName(g.Key.Month),
-                    TotalAmount = g.Sum(s => s.TotalAmount),
-                    SalesCount = g.Count()
-                })
-                .OrderBy(m => m.Year)
-                .ThenBy(m => m.Month)
-                .ToListAsync();
-
-            return new DashboardReportDto
+        // En çok satan ürünler
+        var topProducts = await _context.SaleItems
+            .Where(si => si.Sale.UserId == userId
+                && si.Sale.SaleDate >= startDate
+                && si.Sale.SaleDate <= endDate
+                && si.Sale.PaymentStatus != PaymentStatus.Cancelled)
+            .GroupBy(si => new { si.ProductName })
+            .Select(g => new TopProductDto
             {
-                TotalSales = sales.Sum(s => s.TotalAmount),
-                TotalIncome = payments.Where(p => p.PaymentType == PaymentType.Income).Sum(p => p.Amount),
-                TotalExpense = payments.Where(p => p.PaymentType == PaymentType.Expense).Sum(p => p.Amount),
-                PendingPayments = pendingSales.Sum(s => s.TotalAmount) -
-                                 pendingSales.Sum(s => s.Payments?.Where(p => p.PaymentType == PaymentType.Income).Sum(p => p.Amount) ?? 0),
-                TotalSalesCount = sales.Count,
-                TotalPaymentsCount = payments.Count,
-                LowStockCount = lowStoks,
-                TopSellingProducts = topProducts,
-                MonthlySales = monthlySalesData
-            };
-        }
+                ProductName = g.Key.ProductName,
+                TotalQuantity = g.Sum(si => si.Quantity),
+                TotalRevenue = g.Sum(si => si.TotalPrice)
+            })
+            .OrderByDescending(p => p.TotalRevenue)
+            .Take(5)
+            .ToListAsync();
 
-        public async Task<byte[]> GenerateSalesReportPdf(int userId, DateTime startDate, DateTime endDate)
-        {
-            // PDF oluşturma için iTextSharp veya QuestPDF kütüphanesi kullanılabilir
-            // Bu metod şu an için placeholder olarak bırakılmıştır
-            throw new NotImplementedException("PDF rapor özelliği henüz geliştirilmedi");
-        }
+        // Aylık satış özeti (son 6 ay)
+        var sixMonthsAgo = DateTime.UtcNow.AddMonths(-6);
+        var monthlySales = await _context.Sales
+            .Where(s => s.UserId == userId
+                && s.SaleDate >= sixMonthsAgo
+                && s.PaymentStatus != PaymentStatus.Cancelled)
+            .GroupBy(s => new { s.SaleDate.Year, s.SaleDate.Month })
+            .Select(g => new MonthlySalesSummary
+            {
+                Year = g.Key.Year,
+                Month = g.Key.Month,
+                TotalAmount = g.Sum(s => s.TotalAmount),
+                SalesCount = g.Count()
+            })
+            .OrderBy(m => m.Year).ThenBy(m => m.Month)
+            .ToListAsync();
 
-        public async Task<byte[]> GenerateStockReportExcel(int userId)
+        return new DashboardReportDto
         {
-            // Excel oluşturma için EPPlus veya ClosedXML kütüphanesi kullanılabilir
-            // Bu metod şu an için placeholder olarak bırakılmıştır
-            throw new NotImplementedException("Excel rapor özelliği henüz geliştirilmedi");
-        }
+            TotalSales = totalSales,
+            TotalIncome = totalIncome,
+            TotalExpense = totalExpense,
+            NetProfit = totalIncome - totalExpense,
+            PendingSalesCount = pendingSalesCount,
+            TotalProductCount = totalProductCount,
+            LowStockCount = lowStockCount,
+            TopProducts = topProducts,
+            MonthlySales = monthlySales
+        };
     }
 }

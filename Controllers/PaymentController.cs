@@ -1,195 +1,92 @@
 ﻿using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Payment;
+using Hesapix.Models.Enums;
 using Hesapix.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
-namespace Hesapix.Controllers
+namespace Hesapix.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class PaymentController : ControllerBase
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    [Authorize]
-    public class PaymentController : ControllerBase
+    private readonly IPaymentService _paymentService;
+
+    public PaymentController(IPaymentService paymentService)
     {
-        private readonly IPaymentService _paymentService;
-        private readonly ILogger<PaymentController> _logger;
+        _paymentService = paymentService;
+    }
 
-        public PaymentController(IPaymentService paymentService, ILogger<PaymentController> logger)
+    [HttpGet]
+    public async Task<IActionResult> GetPayments(
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] PaymentType? type = null,
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _paymentService.GetPaymentsAsync(userId, pageNumber, pageSize, type, startDate, endDate);
+        return Ok(ApiResponse<PagedResult<PaymentDto>>.SuccessResponse(result));
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetPaymentById(int id)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var payment = await _paymentService.GetPaymentByIdAsync(id, userId);
+
+        if (payment == null)
         {
-            _paymentService = paymentService;
-            _logger = logger;
+            return NotFound(ApiResponse<PaymentDto>.ErrorResponse("Ödeme bulunamadı"));
         }
 
-        private int GetUserId()
+        return Ok(ApiResponse<PaymentDto>.SuccessResponse(payment));
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> CreatePayment([FromBody] CreatePaymentRequest request)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _paymentService.CreatePaymentAsync(request, userId);
+
+        if (!result.Success)
         {
-            return int.Parse(User.FindFirst("UserId")?.Value ?? "0");
+            return BadRequest(ApiResponse<PaymentDto>.ErrorResponse(result.Message));
         }
 
-        [HttpGet]
-        public async Task<ActionResult<ApiResponse<List<PaymentDto>>>> GetPayments(
-            [FromQuery] DateTime? startDate = null,
-            [FromQuery] DateTime? endDate = null,
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 50)
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == 0)
-                {
-                    return Unauthorized(ApiResponse<List<PaymentDto>>.FailResult("Geçersiz kullanıcı"));
-                }
+        return CreatedAtAction(nameof(GetPaymentById), new { id = result.Data!.Id },
+            ApiResponse<PaymentDto>.SuccessResponse(result.Data, result.Message));
+    }
 
-                var result = await _paymentService.GetPaymentsByUserIdAsync(userId, startDate, endDate, page, pageSize);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ödemeler listelenirken hata");
-                return StatusCode(500, ApiResponse<List<PaymentDto>>.FailResult("Ödemeler listelenemedi"));
-            }
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdatePayment(int id, [FromBody] CreatePaymentRequest request)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _paymentService.UpdatePaymentAsync(id, request, userId);
+
+        if (!result.Success)
+        {
+            return BadRequest(ApiResponse<PaymentDto>.ErrorResponse(result.Message));
         }
 
-        [HttpGet("{id}")]
-        public async Task<ActionResult<ApiResponse<PaymentDto>>> GetPayment(int id)
+        return Ok(ApiResponse<PaymentDto>.SuccessResponse(result.Data!, result.Message));
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeletePayment(int id)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _paymentService.DeletePaymentAsync(id, userId);
+
+        if (!result.Success)
         {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == 0)
-                {
-                    return Unauthorized(ApiResponse<PaymentDto>.FailResult("Geçersiz kullanıcı"));
-                }
-
-                var result = await _paymentService.GetPaymentByIdAsync(id, userId);
-
-                if (!result.Success)
-                {
-                    return NotFound(result);
-                }
-
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ödeme bilgisi alınırken hata: PaymentId={PaymentId}", id);
-                return StatusCode(500, ApiResponse<PaymentDto>.FailResult("Ödeme bilgisi alınamadı"));
-            }
+            return BadRequest(ApiResponse.ErrorResponse(result.Message));
         }
 
-        [HttpPost]
-        public async Task<ActionResult<ApiResponse<PaymentDto>>> CreatePayment([FromBody] CreatePaymentRequest request)
-        {
-            try
-            {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ApiResponse<PaymentDto>.FailResult("Geçersiz veri"));
-                }
-
-                var userId = GetUserId();
-                if (userId == 0)
-                {
-                    return Unauthorized(ApiResponse<PaymentDto>.FailResult("Geçersiz kullanıcı"));
-                }
-
-                var result = await _paymentService.CreatePaymentAsync(request, userId);
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogInformation("Yeni ödeme oluşturuldu: UserId={UserId}, PaymentId={PaymentId}", userId, result.Data?.Id);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ödeme oluşturulurken hata");
-                return StatusCode(500, ApiResponse<PaymentDto>.FailResult("Ödeme oluşturulamadı"));
-            }
-        }
-
-        [HttpPut("{id}")]
-        public async Task<ActionResult<ApiResponse<PaymentDto>>> UpdatePayment(int id, [FromBody] CreatePaymentRequest request)
-        {
-            try
-            {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ApiResponse<PaymentDto>.FailResult("Geçersiz veri"));
-                }
-
-                var userId = GetUserId();
-                if (userId == 0)
-                {
-                    return Unauthorized(ApiResponse<PaymentDto>.FailResult("Geçersiz kullanıcı"));
-                }
-
-                var result = await _paymentService.UpdatePaymentAsync(id, request, userId);
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogInformation("Ödeme güncellendi: UserId={UserId}, PaymentId={PaymentId}", userId, id);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ödeme güncellenirken hata: PaymentId={PaymentId}", id);
-                return StatusCode(500, ApiResponse<PaymentDto>.FailResult("Ödeme güncellenemedi"));
-            }
-        }
-
-        [HttpDelete("{id}")]
-        public async Task<ActionResult<ApiResponse<bool>>> DeletePayment(int id)
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == 0)
-                {
-                    return Unauthorized(ApiResponse<bool>.FailResult("Geçersiz kullanıcı"));
-                }
-
-                var result = await _paymentService.DeletePaymentAsync(id, userId);
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogInformation("Ödeme silindi: UserId={UserId}, PaymentId={PaymentId}", userId, id);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ödeme silinirken hata: PaymentId={PaymentId}", id);
-                return StatusCode(500, ApiResponse<bool>.FailResult("Ödeme silinemedi"));
-            }
-        }
-
-        [HttpGet("sale/{saleId}")]
-        public async Task<ActionResult<ApiResponse<List<PaymentDto>>>> GetPaymentsBySaleId(int saleId)
-        {
-            try
-            {
-                var userId = GetUserId();
-                if (userId == 0)
-                {
-                    return Unauthorized(ApiResponse<List<PaymentDto>>.FailResult("Geçersiz kullanıcı"));
-                }
-
-                var result = await _paymentService.GetPaymentsBySaleIdAsync(saleId, userId);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Satış ödemeleri listelenirken hata: SaleId={SaleId}", saleId);
-                return StatusCode(500, ApiResponse<List<PaymentDto>>.FailResult("Satış ödemeleri listelenemedi"));
-            }
-        }
+        return Ok(ApiResponse.SuccessResponse(result.Message));
     }
 }

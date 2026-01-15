@@ -1,44 +1,38 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+﻿using Hesapix.Models.Enums;
 
-namespace Hesapix.Models.Entities
+namespace Hesapix.Models.Entities;
+
+public class Subscription
 {
-    public class Subscription
-    {
-        [Key]
-        public int Id { get; set; }
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    public SubscriptionPlanType PlanType { get; set; }
+    public SubscriptionStatus Status { get; set; }
 
-        [Required]
-        public int UserId { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public DateTime? CancelledAt { get; set; }
 
-        [Required]
-        [MaxLength(50)]
-        public string PlanType { get; set; } = "Free"; // Free, Basic, Premium, Enterprise
+    public decimal Price { get; set; }
+    public decimal? DiscountAmount { get; set; }
+    public decimal FinalPrice { get; set; }
 
-        public DateTime StartDate { get; set; } = DateTime.UtcNow;
+    public bool IsTrial { get; set; } = false;
+    public bool AutoRenew { get; set; } = true;
 
-        public DateTime? EndDate { get; set; }
+    // Payment Gateway Info
+    public string? PaymentGateway { get; set; } // "Iyzico", "GooglePlay", "AppStore"
+    public string? PaymentTransactionId { get; set; }
+    public string? PaymentToken { get; set; }
+    public DateTime? PaymentDate { get; set; }
 
-        [Required]
-        [MaxLength(20)]
-        public string Status { get; set; } = "Active"; // Active, Expired, Cancelled
+    // Retry Mechanism
+    public int PaymentRetryCount { get; set; } = 0;
+    public DateTime? LastPaymentRetryDate { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal Price { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
 
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-        public DateTime? UpdatedAt { get; set; }
-
-        // Navigation Property
-        [ForeignKey(nameof(UserId))]
-        public virtual User User { get; set; } = null!;
-
-        // Helper method
-        public bool IsActive()
-        {
-            return Status == "Active" &&
-                   (EndDate == null || EndDate > DateTime.UtcNow);
-        }
-    }
+    // Navigation
+    public virtual User User { get; set; } = null!;
 }

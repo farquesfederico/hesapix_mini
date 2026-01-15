@@ -1,15 +1,14 @@
 ﻿using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Payment;
+using Hesapix.Models.Enums;
 
-namespace Hesapix.Services.Interfaces
+namespace Hesapix.Services.Interfaces;
+
+public interface IPaymentService
 {
-    public interface IPaymentService
-    {
-        Task<ApiResponse<List<PaymentDto>>> GetPaymentsByUserIdAsync(int userId, DateTime? startDate, DateTime? endDate, int page, int pageSize);
-        Task<ApiResponse<PaymentDto>> GetPaymentByIdAsync(int paymentId, int userId);
-        Task<ApiResponse<PaymentDto>> CreatePaymentAsync(CreatePaymentRequest request, int userId);
-        Task<ApiResponse<PaymentDto>> UpdatePaymentAsync(int paymentId, CreatePaymentRequest request, int userId);
-        Task<ApiResponse<bool>> DeletePaymentAsync(int paymentId, int userId);
-        Task<ApiResponse<List<PaymentDto>>> GetPaymentsBySaleIdAsync(int saleId, int userId);
-    }
+    Task<PagedResult<PaymentDto>> GetPaymentsAsync(int userId, int pageNumber = 1, int pageSize = 10, PaymentType? type = null, DateTime? startDate = null, DateTime? endDate = null);
+    Task<PaymentDto?> GetPaymentByIdAsync(int id, int userId);
+    Task<(bool Success, string Message, PaymentDto? Data)> CreatePaymentAsync(CreatePaymentRequest request, int userId);
+    Task<(bool Success, string Message, PaymentDto? Data)> UpdatePaymentAsync(int id, CreatePaymentRequest request, int userId);
+    Task<(bool Success, string Message)> DeletePaymentAsync(int id, int userId);
 }

@@ -1,145 +1,151 @@
-﻿using MailKit.Net.Smtp;
+﻿using Hesapix.Services.Interfaces;
+using MailKit.Net.Smtp;
 using MailKit.Security;
+using Microsoft.Extensions.Configuration;
 using MimeKit;
-using Hesapix.Services.Interfaces;
+using Serilog;
 
-namespace Hesapix.Services.Implementations
+namespace Hesapix.Services.Implementations;
+
+public class EmailService : IEmailService
 {
-    public class EmailService : IEmailService
+    private readonly IConfiguration _configuration;
+
+    public EmailService(IConfiguration configuration)
     {
-        private readonly IConfiguration _configuration;
-        private readonly ILogger<EmailService> _logger;
+        _configuration = configuration;
+    }
 
-        public EmailService(IConfiguration configuration, ILogger<EmailService> logger)
+    public async Task<bool> SendEmailAsync(string toEmail, string subject, string body)
+    {
+        try
         {
-            _configuration = configuration;
-            _logger = logger;
-        }
-
-        public async Task SendVerificationEmailAsync(string email, string name, string verificationCode)
-        {
-            var subject = "Hesapix - Email Doğrulama";
-            var body = $@"
-                <html>
-                <body style='font-family: Arial, sans-serif;'>
-                    <h2>Merhaba {name},</h2>
-                    <p>Hesapix'e hoş geldiniz! Email adresinizi doğrulamak için aşağıdaki kodu kullanın:</p>
-                    <h1 style='color: #4CAF50; letter-spacing: 5px;'>{verificationCode}</h1>
-                    <p>Bu kod 24 saat geçerlidir.</p>
-                    <p>Eğer bu işlemi siz yapmadıysanız, lütfen bu emaili görmezden gelin.</p>
-                    <br>
-                    <p>Hesapix Ekibi</p>
-                </body>
-                </html>
-            ";
-
-            await SendEmailAsync(email, subject, body);
-        }
-
-        public async Task SendPasswordResetEmailAsync(string email, string name, string resetToken)
-        {
-            var resetUrl = $"{_configuration["AppSettings:FrontendUrl"]}/reset-password?token={resetToken}";
-
-            var subject = "Hesapix - Şifre Sıfırlama";
-            var body = $@"
-                <html>
-                <body style='font-family: Arial, sans-serif;'>
-                    <h2>Merhaba {name},</h2>
-                    <p>Şifrenizi sıfırlamak için aşağıdaki linke tıklayın:</p>
-                    <p><a href='{resetUrl}' style='background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Şifremi Sıfırla</a></p>
-                    <p>Bu link 1 saat geçerlidir.</p>
-                    <p>Eğer şifre sıfırlama talebinde bulunmadıysanız, lütfen bu emaili görmezden gelin.</p>
-                    <br>
-                    <p>Hesapix Ekibi</p>
-                </body>
-                </html>
-            ";
-
-            await SendEmailAsync(email, subject, body);
-        }
-
-        public async Task SendInvoiceEmailAsync(string email, string name, byte[] pdfBytes, string invoiceNumber)
-        {
-            var subject = $"Hesapix - Fatura #{invoiceNumber}";
-            var body = $@"
-                <html>
-                <body style='font-family: Arial, sans-serif;'>
-                    <h2>Merhaba {name},</h2>
-                    <p>Faturanız ektedir.</p>
-                    <p><strong>Fatura No:</strong> {invoiceNumber}</p>
-                    <br>
-                    <p>İyi günler dileriz.</p>
-                    <p>Hesapix Ekibi</p>
-                </body>
-                </html>
-            ";
-
+            var emailSettings = _configuration.GetSection("EmailSettings");
             var message = new MimeMessage();
 
-            var fromName = _configuration["Email:FromName"] ?? "Hesapix";
-            var fromAddress = _configuration["Email:Username"];
-
-            message.From.Add(new MailboxAddress(fromName, fromAddress));
-            message.To.Add(new MailboxAddress(name, email)); // Alıcının adı ve emaili
+            message.From.Add(new MailboxAddress(
+                emailSettings["SenderName"],
+                emailSettings["SenderEmail"]
+            ));
+            message.To.Add(new MailboxAddress("", toEmail));
             message.Subject = subject;
 
-            var builder = new BodyBuilder
-            {
-                HtmlBody = body
-            };
-
-            // PDF eklentisi
-            builder.Attachments.Add($"Fatura_{invoiceNumber}.pdf", pdfBytes, ContentType.Parse("application/pdf"));
-
+            var builder = new BodyBuilder { HtmlBody = body };
             message.Body = builder.ToMessageBody();
 
-            await SendEmailInternalAsync(message);
-        }
+            using var client = new SmtpClient();
+            await client.ConnectAsync(
+                emailSettings["SmtpServer"],
+                int.Parse(emailSettings["SmtpPort"]!),
+                SecureSocketOptions.StartTls
+            );
 
-        private async Task SendEmailAsync(string to, string subject, string htmlBody)
+            await client.AuthenticateAsync(
+                emailSettings["Username"],
+                emailSettings["Password"]
+            );
+
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+
+            Log.Information("Email sent successfully to {Email}", toEmail);
+            return true;
+        }
+        catch (Exception ex)
         {
-            var message = new MimeMessage();
-
-            var fromName = _configuration["Email:FromName"] ?? "Hesapix";
-            var fromAddress = _configuration["Email:Username"]; // Gmail username'i gönderici adresi olarak kullan
-
-            message.From.Add(new MailboxAddress(fromName, fromAddress));
-            message.To.Add(new MailboxAddress("", to)); // Alıcı adresi
-            message.Subject = subject;
-
-            var builder = new BodyBuilder
-            {
-                HtmlBody = htmlBody
-            };
-
-            message.Body = builder.ToMessageBody();
-
-            await SendEmailInternalAsync(message);
+            Log.Error(ex, "Failed to send email to {Email}", toEmail);
+            return false;
         }
+    }
 
-        private async Task SendEmailInternalAsync(MimeMessage message)
-        {
-            try
-            {
-                using var client = new SmtpClient();
+    public async Task<bool> SendVerificationEmailAsync(string toEmail, string verificationLink)
+    {
+        var subject = "Hesapix - Email Doğrulama";
+        var body = $@"
+            <html>
+            <body style='font-family: Arial, sans-serif;'>
+                <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
+                    <h2 style='color: #333;'>Hoş Geldiniz!</h2>
+                    <p>Hesapix'e kayıt olduğunuz için teşekkür ederiz.</p>
+                    <p>Lütfen aşağıdaki bağlantıya tıklayarak email adresinizi doğrulayın:</p>
+                    <a href='{verificationLink}' 
+                       style='display: inline-block; padding: 12px 24px; margin: 20px 0; 
+                              background-color: #007bff; color: white; text-decoration: none; 
+                              border-radius: 4px;'>
+                        Email Adresimi Doğrula
+                    </a>
+                    <p style='color: #666; font-size: 14px;'>
+                        Bu link 24 saat geçerlidir. Eğer bu işlemi siz yapmadıysanız, bu emaili görmezden gelebilirsiniz.
+                    </p>
+                </div>
+            </body>
+            </html>";
 
-                var host = _configuration["Email:SmtpHost"];
-                var port = int.Parse(_configuration["Email:SmtpPort"] ?? "587");
-                var username = _configuration["Email:Username"];
-                var password = _configuration["Email:Password"];
+        return await SendEmailAsync(toEmail, subject, body);
+    }
 
-                await client.ConnectAsync(host, port, SecureSocketOptions.StartTls);
-                await client.AuthenticateAsync(username, password);
-                await client.SendAsync(message);
-                await client.DisconnectAsync(true);
+    public async Task<bool> SendPasswordResetEmailAsync(string toEmail, string resetLink)
+    {
+        var subject = "Hesapix - Şifre Sıfırlama";
+        var body = $@"
+            <html>
+            <body style='font-family: Arial, sans-serif;'>
+                <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
+                    <h2 style='color: #333;'>Şifre Sıfırlama Talebi</h2>
+                    <p>Şifrenizi sıfırlamak için bir talepte bulundunuz.</p>
+                    <p>Lütfen aşağıdaki bağlantıya tıklayarak yeni şifrenizi belirleyin:</p>
+                    <a href='{resetLink}' 
+                       style='display: inline-block; padding: 12px 24px; margin: 20px 0; 
+                              background-color: #dc3545; color: white; text-decoration: none; 
+                              border-radius: 4px;'>
+                        Şifremi Sıfırla
+                    </a>
+                    <p style='color: #666; font-size: 14px;'>
+                        Bu link 1 saat geçerlidir. Eğer bu işlemi siz yapmadıysanız, lütfen bu emaili görmezden geçin ve hesap güvenliğinizi kontrol edin.
+                    </p>
+                </div>
+            </body>
+            </html>";
 
-                _logger.LogInformation("Email sent successfully to {To}", message.To);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send email to {To}", message.To);
-                throw;
-            }
-        }
+        return await SendEmailAsync(toEmail, subject, body);
+    }
+
+    public async Task<bool> SendSubscriptionConfirmationEmailAsync(string toEmail, string companyName, DateTime endDate)
+    {
+        var subject = "Hesapix - Abonelik Onayı";
+        var body = $@"
+            <html>
+            <body style='font-family: Arial, sans-serif;'>
+                <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
+                    <h2 style='color: #28a745;'>Aboneliğiniz Aktif!</h2>
+                    <p>Sayın {companyName},</p>
+                    <p>Hesapix aboneliğiniz başarıyla aktif edilmiştir.</p>
+                    <p><strong>Abonelik Bitiş Tarihi:</strong> {endDate:dd.MM.yyyy}</p>
+                    <p>Tüm özelliklerimizden faydalanabilirsiniz.</p>
+                    <p style='margin-top: 20px;'>İyi çalışmalar dileriz!</p>
+                </div>
+            </body>
+            </html>";
+
+        return await SendEmailAsync(toEmail, subject, body);
+    }
+
+    public async Task<bool> SendSubscriptionExpirationWarningAsync(string toEmail, string companyName, int daysRemaining)
+    {
+        var subject = "Hesapix - Abonelik Hatırlatması";
+        var body = $@"
+            <html>
+            <body style='font-family: Arial, sans-serif;'>
+                <div style='max-width: 600px; margin: 0 auto; padding: 20px;'>
+                    <h2 style='color: #ffc107;'>Abonelik Hatırlatması</h2>
+                    <p>Sayın {companyName},</p>
+                    <p>Hesapix aboneliğinizin sona ermesine <strong>{daysRemaining} gün</strong> kaldı.</p>
+                    <p>Kesintisiz hizmet almak için lütfen aboneliğinizi yenileyin.</p>
+                    <p style='margin-top: 20px;'>Teşekkürler,<br/>Hesapix Ekibi</p>
+                </div>
+            </body>
+            </html>";
+
+        return await SendEmailAsync(toEmail, subject, body);
     }
 }

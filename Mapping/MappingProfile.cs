@@ -3,41 +3,40 @@ using Hesapix.Models.DTOs;
 using Hesapix.Models.DTOs.Payment;
 using Hesapix.Models.DTOs.Sale;
 using Hesapix.Models.DTOs.Stock;
-using Hesapix.Models.DTOs.Subs;
+using Hesapix.Models.DTOs.Subscription;
 using Hesapix.Models.Entities;
 
-namespace Hesapix.Mapping
+namespace Hesapix.Mapping;
+
+public class MappingProfile : Profile
 {
-    public class MappingProfile : Profile
+    public MappingProfile()
     {
-        public MappingProfile()
-        {
-            // User Mappings
-            CreateMap<User, UserDto>()
-                .ForMember(dest => dest.Subscription, opt => opt.MapFrom(src => src.Subscription));
+        // User Mappings
+        CreateMap<User, UserDto>();
 
-            // Subscription Mappings
-            CreateMap<Subscription, SubscriptionDTO>()
-                .ForMember(dest => dest.UserFullName, opt => opt.MapFrom(src => src.User.FullName))
-                .ForMember(dest => dest.UserEmail, opt => opt.MapFrom(src => src.User.Email))
-                .ForMember(dest => dest.IsActive, opt => opt.MapFrom(src => src.IsActive()))
-                .ForMember(dest => dest.DaysRemaining, opt => opt.MapFrom(src =>
-                    src.EndDate.HasValue ? (int?)(src.EndDate.Value - DateTime.UtcNow).TotalDays : null));
+        // Subscription Mappings
+        CreateMap<Subscription, SubscriptionDto>()
+            .ForMember(dest => dest.DaysRemaining,
+                opt => opt.MapFrom(src => (src.EndDate - DateTime.UtcNow).Days))
+            .ForMember(dest => dest.IsActive,
+                opt => opt.MapFrom(src => src.Status == Models.Enums.SubscriptionStatus.Active
+                    && src.EndDate > DateTime.UtcNow));
 
-            // Sale Mappings
-            CreateMap<Sale, SaleDto>()
-                .ForMember(dest => dest.Items, opt => opt.MapFrom(src => src.SaleItems));
+        // Sale Mappings
+        CreateMap<Sale, SaleDto>();
+        CreateMap<SaleItem, SaleItemDto>();
 
-            CreateMap<SaleItem, SaleItemDto>()
-                .ForMember(dest => dest.ProductName, opt => opt.MapFrom(src => src.Stock.ProductName))
-                .ForMember(dest => dest.ProductCode, opt => opt.MapFrom(src => src.Stock.ProductCode));
+        // Payment Mappings
+        CreateMap<Payment, PaymentDto>();
+        CreateMap<CreatePaymentRequest, Payment>()
+            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow));
 
-            // Stock Mappings
-            CreateMap<Stok, StockDto>();
-
-            // Payment Mappings
-            CreateMap<Payment, PaymentDto>()
-                .ForMember(dest => dest.CustomerName, opt => opt.MapFrom(src => src.Sale != null ? src.Sale.CustomerName : null));
-        }
+        // Stock Mappings
+        CreateMap<Stok, StockDto>();
+        CreateMap<CreateStockRequest, Stok>()
+            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow));
+        CreateMap<UpdateStockRequest, Stok>()
+            .ForMember(dest => dest.UpdatedAt, opt => opt.MapFrom(src => DateTime.UtcNow));
     }
 }

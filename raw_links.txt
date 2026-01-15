@@ -6,6 +6,7 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Hesapix.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Hesapix.http
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Program.cs
 
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/AdminController.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/AuthController.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/ExportController.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/PaymentController.cs
@@ -38,6 +39,9 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTO
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Stock/StockDto.cs
 
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Subs/CreateSubscriptionRequest.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Subs/SubscriptionDTO.cs
+
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/UserDto.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/Payment.cs
@@ -54,8 +58,8 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/I
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IPdfService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IReportService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/ISaleService.cs
-https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IStokservice.cs
-
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IStockService.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/ISubscriptionService.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/AuthService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/EmailService.cs
@@ -65,5 +69,6 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/I
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/ReportService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/SaleService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/StokService.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/SubscriptionService.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Validators/RegisterRequesValidator.cs

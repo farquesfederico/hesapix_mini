@@ -1,17 +1,14 @@
-﻿using Hesapix.Models.Common;
-using Hesapix.Models.DTOs;
-using Hesapix.Models.DTOs.Auth;
+﻿using Hesapix.Models.DTOs.Auth;
 
-namespace Hesapix.Services.Interfaces
+namespace Hesapix.Services.Interfaces;
+
+public interface IAuthService
 {
-    public interface IAuthService
-    {
-        Task<ApiResponse<AuthResponse>> RegisterAsync(RegisterRequest request);
-        Task<ApiResponse<AuthResponse>> LoginAsync(LoginRequest request);
-        Task<ApiResponse<AuthResponse>> RefreshTokenAsync(int userId);
-        Task<ApiResponse<bool>> ChangePasswordAsync(int userId, string oldPassword, string newPassword);
-        Task<ApiResponse<bool>> UpdateUserRoleAsync(int userId, string role);
-        Task<ApiResponse<List<UserDto>>> GetAllUsersAsync(int page, int pageSize, string? search);
-        Task<ApiResponse<UserDto>> GetUserByIdAsync(int userId);
-    }
+    Task<(bool Success, string Message, AuthResponse? Data)> RegisterAsync(RegisterRequest request);
+    Task<(bool Success, string Message, AuthResponse? Data)> LoginAsync(LoginRequest request);
+    Task<(bool Success, string Message, AuthResponse? Data)> RefreshTokenAsync(string refreshToken);
+    Task<(bool Success, string Message)> VerifyEmailAsync(string token);
+    Task<(bool Success, string Message)> ResendVerificationEmailAsync(string email);
+    Task<(bool Success, string Message)> ForgotPasswordAsync(string email);
+    Task<(bool Success, string Message)> ResetPasswordAsync(string token, string newPassword);
 }

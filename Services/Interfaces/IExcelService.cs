@@ -1,9 +1,8 @@
-﻿namespace Hesapix.Services.Interfaces
+﻿namespace Hesapix.Services.Interfaces;
+
+public interface IExcelService
 {
-    public interface IExcelService
-    {
-        Task<byte[]> ExportSalesAsync(DateTime startDate, DateTime endDate, int userId);
-        Task<byte[]> ExportStoksAsync(int userId);
-        Task<byte[]> ExportPaymentsAsync(DateTime startDate, DateTime endDate, int userId);
-    }
+    Task<byte[]> ExportSalesToExcelAsync(int userId, DateTime? startDate = null, DateTime? endDate = null);
+    Task<byte[]> ExportPaymentsToExcelAsync(int userId, DateTime? startDate = null, DateTime? endDate = null);
+    Task<byte[]> ExportStocksToExcelAsync(int userId);
 }

@@ -1,52 +1,28 @@
-﻿using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+﻿namespace Hesapix.Models.Entities;
 
-namespace Hesapix.Models.Entities
+public class Stok
 {
-    public class Stok
-    {
-        [Key]
-        public int Id { get; set; }
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    public string ProductCode { get; set; } = string.Empty;
+    public string ProductName { get; set; } = string.Empty;
+    public string? Category { get; set; }
+    public string? Unit { get; set; }
+    public int Quantity { get; set; }
+    public int MinimumStock { get; set; } = 0;
+    public decimal PurchasePrice { get; set; }
+    public decimal SalePrice { get; set; }
+    public decimal? TaxRate { get; set; } = 18;
+    public string? Barcode { get; set; }
+    public string? Description { get; set; }
+    public bool IsActive { get; set; } = true;
 
-        [Required]
-        public int UserId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 
-        [Required]
-        [MaxLength(200)]
-        public string ProductName { get; set; } = string.Empty;
-
-        [MaxLength(50)]
-        public string? ProductCode { get; set; }
-
-        [MaxLength(100)]
-        public string? Category { get; set; }
-
-        [Required]
-        public int Quantity { get; set; }
-
-        [Required]
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal UnitPrice { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal? CostPrice { get; set; }
-
-        [MaxLength(20)]
-        public string? Unit { get; set; } = "Adet";
-
-        public int? MinStockLevel { get; set; }
-
-        [MaxLength(500)]
-        public string? Description { get; set; }
-
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-        public DateTime? UpdatedAt { get; set; }
-
-        // Navigation Properties
-        [ForeignKey(nameof(UserId))]
-        public virtual User User { get; set; } = null!;
-
-        public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
-    }
+    // Navigation
+    public virtual User User { get; set; } = null!;
+    public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
 }

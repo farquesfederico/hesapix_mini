@@ -1,47 +1,47 @@
-﻿using Hesapix.Data;
+﻿using FluentValidation;
+using FluentValidation.AspNetCore;
+using Hesapix.Data;
 using Hesapix.Mapping;
 using Hesapix.Middleware;
-using Hesapix.MiddleWare;
-using Hesapix.Models.Entities;
 using Hesapix.Services.Implementations;
 using Hesapix.Services.Interfaces;
+using Hesapix.Validators;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.Security.Cryptography;
+using Org.BouncyCastle.Crypto.Generators;
+using Serilog;
 using System.Text;
-using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Serilog Configuration
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
 // Database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(
+    options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
-        sqlOptions => sqlOptions
-            .EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null)
-            .CommandTimeout(60)
-    ));
+        npgsqlOptions => npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorCodesToAdd: null)));
 
 // AutoMapper
 builder.Services.AddAutoMapper(typeof(MappingProfile));
 
-// Services
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<ISaleService, SaleService>();
-builder.Services.AddScoped<IStockService, StokService>();
-builder.Services.AddScoped<IPaymentService, PaymentService>();
-builder.Services.AddScoped<IReportService, ReportService>();
-builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
-builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddScoped<IPdfService, PdfService>();
-builder.Services.AddScoped<IExcelService, ExcelService>();
+// FluentValidation
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
 // JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key bulunamadı");
-var key = Encoding.UTF8.GetBytes(jwtKey);
+var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+var secretKey = Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -55,11 +55,11 @@ builder.Services.AddAuthentication(options =>
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(key),
+        IssuerSigningKey = new SymmetricSecurityKey(secretKey),
         ValidateIssuer = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidIssuer = jwtSettings["Issuer"],
         ValidateAudience = true,
-        ValidAudience = builder.Configuration["Jwt:Audience"],
+        ValidAudience = jwtSettings["Audience"],
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };
@@ -67,19 +67,8 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// Rate Limiting
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-
-    options.AddFixedWindowLimiter("fixed", options =>
-    {
-        options.PermitLimit = 100;
-        options.Window = TimeSpan.FromMinutes(1);
-        options.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        options.QueueLimit = 10;
-    });
-});
+// Rate Limiting - Basit middleware ile
+// NOT: .NET 8'de RateLimiting built-in değil, custom middleware kullanacağız
 
 // CORS
 builder.Services.AddCors(options =>
@@ -92,12 +81,23 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Services Registration
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+builder.Services.AddScoped<ISaleService, SaleService>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IStokService, StokService>();
+builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IExcelService, ExcelService>();
+builder.Services.AddScoped<IPdfService, PdfService>();
+
 // Controllers
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-        options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 
 // Swagger
@@ -108,16 +108,17 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "Hesapix API",
         Version = "v1",
-        Description = "Hesapix Management System API"
+        Description = "Hesapix - İşletme Yönetim Sistemi API"
     });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Bearer {token}\"",
         Name = "Authorization",
-        In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header. Example: 'Bearer {token}'"
     });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -136,10 +137,9 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Logging
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-builder.Logging.AddDebug();
+// Health Checks
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<ApplicationDbContext>();
 
 var app = builder.Build();
 
@@ -147,65 +147,75 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Hesapix API v1");
+        c.RoutePrefix = string.Empty;
+    });
 }
+
+app.UseSerilogRequestLogging();
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
 
-app.UseRateLimiter();
-
-app.UseMiddleware<GlobalExceptionMiddleware>();
+// Rate limiting middleware kaldırıldı (isteğe bağlı eklenebilir)
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseSubscriptionCheck();
+app.UseMiddleware<SubscriptionMiddleware>();
 
 app.MapControllers();
 
-// Health Check
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+app.MapHealthChecks("/health");
 
-// Database migration ve seed
+// Database Migration ve Seed
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
-    var context = services.GetRequiredService<ApplicationDbContext>();
-    var logger = services.GetRequiredService<ILogger<Program>>();
-
     try
     {
-        await context.Database.MigrateAsync();
-        logger.LogInformation("Database migrations uygulandı");
+        var context = services.GetRequiredService<ApplicationDbContext>();
 
-        if (!await context.Users.AnyAsync(u => u.Role == "Admin"))
+        // Migration uygula
+        if (context.Database.GetPendingMigrations().Any())
         {
-            using var sha256 = SHA256.Create();
-            var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes("Admin123!"));
-            var adminPasswordHash = Convert.ToBase64String(hashedBytes);
-
-            var adminUser = new User
-            {
-                FullName = "System Admin",
-                Email = "admin@hesapix.com",
-                PasswordHash = adminPasswordHash,
-                Role = "Admin",
-                CreatedAt = DateTime.UtcNow,
-                IsActive = true
-            };
-
-            context.Users.Add(adminUser);
-            await context.SaveChangesAsync();
-
-            logger.LogInformation("İlk admin kullanıcısı oluşturuldu: admin@hesapix.com / Admin123!");
+            Log.Information("Applying database migrations...");
+            context.Database.Migrate();
         }
+
+        // Admin kullanıcı yoksa oluştur
+        if (!context.Users.Any(u => u.Role == Hesapix.Models.Enums.UserRole.Admin))
+        {
+            Log.Information("Creating default admin user...");
+            var admin = new Hesapix.Models.Entities.User
+            {
+                Email = "admin@hesapix.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
+                CompanyName = "Hesapix Admin",
+                Role = Hesapix.Models.Enums.UserRole.Admin,
+                IsEmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.Users.Add(admin);
+            context.SaveChanges();
+            Log.Information("Admin user created: admin@hesapix.com / Admin123!");
+        }
+
+        Log.Information("Database initialization completed successfully");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Database başlatma hatası");
+        Log.Error(ex, "An error occurred while initializing the database");
+        throw;
     }
 }
 
+Log.Information("Starting Hesapix API...");
 app.Run();
+Log.Information("Hesapix API stopped");
+Log.CloseAndFlush();

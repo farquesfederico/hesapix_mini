@@ -1,11 +1,10 @@
-﻿namespace Hesapix.Models.Enums
+﻿namespace Hesapix.Models.Enums;
+
+public enum PaymentMethod
 {
-    public enum PaymentMethod
-    {
-        Cash = 1,
-        CreditCard = 2,
-        BankTransfer = 3,
-        Check = 4,
-        Other = 5
-    }
+    Cash = 0,
+    CreditCard = 1,
+    BankTransfer = 2,
+    Check = 3,
+    Other = 4
 }

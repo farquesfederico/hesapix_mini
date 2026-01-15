@@ -1,300 +1,238 @@
-﻿using Hesapix.Models.Common;
+﻿using Hesapix.Data;
+using Hesapix.Models.Common;
 using Hesapix.Models.DTOs;
-using Hesapix.Models.DTOs.Subs;
-using Hesapix.Models.DTOs.Subscription;
+using Hesapix.Models.Enums;
 using Hesapix.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using AutoMapper;
 
-namespace Hesapix.Controllers
+namespace Hesapix.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize(Roles = "Admin")]
+public class AdminController : ControllerBase
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    [Authorize(Roles = "Admin")]
-    public class AdminController : ControllerBase
+    private readonly ApplicationDbContext _context;
+    private readonly IMapper _mapper;
+    private readonly ISubscriptionService _subscriptionService;
+    private readonly IConfiguration _configuration;
+
+    public AdminController(
+        ApplicationDbContext context,
+        IMapper mapper,
+        ISubscriptionService subscriptionService,
+        IConfiguration configuration)
     {
-        private readonly IAuthService _authService;
-        private readonly ISubscriptionService _subscriptionService;
-        private readonly ILogger<AdminController> _logger;
-
-        public AdminController(
-            IAuthService authService,
-            ISubscriptionService subscriptionService,
-            ILogger<AdminController> logger)
-        {
-            _authService = authService;
-            _subscriptionService = subscriptionService;
-            _logger = logger;
-        }
-
-        [HttpGet("users")]
-        public async Task<ActionResult<ApiResponse<List<UserDto>>>> GetAllUsers(
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 50,
-            [FromQuery] string? search = null)
-        {
-            try
-            {
-                var result = await _authService.GetAllUsersAsync(page, pageSize, search);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Kullanıcılar listelenirken hata");
-                return StatusCode(500, ApiResponse<List<UserDto>>.FailResult("Kullanıcılar listelenemedi"));
-            }
-        }
-
-        [HttpGet("users/{userId}")]
-        public async Task<ActionResult<ApiResponse<UserDto>>> GetUserById(int userId)
-        {
-            try
-            {
-                var result = await _authService.GetUserByIdAsync(userId);
-
-                if (!result.Success)
-                {
-                    return NotFound(result);
-                }
-
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Kullanıcı bilgisi alınırken hata: UserId={UserId}", userId);
-                return StatusCode(500, ApiResponse<UserDto>.FailResult("Kullanıcı bilgisi alınamadı"));
-            }
-        }
-
-        [HttpPost("users/{userId}/make-admin")]
-        public async Task<ActionResult<ApiResponse<bool>>> MakeUserAdmin(int userId)
-        {
-            try
-            {
-                var currentUserId = int.Parse(User.FindFirst("UserId")?.Value ?? "0");
-
-                var result = await _authService.UpdateUserRoleAsync(userId, "Admin");
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogWarning("Kullanıcı admin yapıldı: UserId={UserId}, By={CurrentUserId}", userId, currentUserId);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Kullanıcı admin yapılırken hata: UserId={UserId}", userId);
-                return StatusCode(500, ApiResponse<bool>.FailResult("Kullanıcı admin yapılamadı"));
-            }
-        }
-
-        [HttpPost("users/{userId}/remove-admin")]
-        public async Task<ActionResult<ApiResponse<bool>>> RemoveUserAdmin(int userId)
-        {
-            try
-            {
-                var currentUserId = int.Parse(User.FindFirst("UserId")?.Value ?? "0");
-
-                // Kendi admin yetkisini kaldıramaz
-                if (userId == currentUserId)
-                {
-                    return BadRequest(ApiResponse<bool>.FailResult("Kendi admin yetkinizi kaldıramazsınız"));
-                }
-
-                var result = await _authService.UpdateUserRoleAsync(userId, "User");
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogWarning("Kullanıcının admin yetkisi kaldırıldı: UserId={UserId}, By={CurrentUserId}", userId, currentUserId);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Kullanıcı admin yetkisi kaldırılırken hata: UserId={UserId}", userId);
-                return StatusCode(500, ApiResponse<bool>.FailResult("Kullanıcı admin yetkisi kaldırılamadı"));
-            }
-        }
-
-        [HttpGet("subscriptions")]
-        public async Task<ActionResult<ApiResponse<List<SubscriptionDTO>>>> GetAllSubscriptions(
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 50,
-            [FromQuery] string? status = null)
-        {
-            try
-            {
-                var result = await _subscriptionService.GetAllSubscriptionsAsync(page, pageSize, status);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Abonelikler listelenirken hata");
-                return StatusCode(500, ApiResponse<List<SubscriptionDTO>>.FailResult("Abonelikler listelenemedi"));
-            }
-        }
-
-        [HttpGet("subscriptions/{subscriptionId}")]
-        public async Task<ActionResult<ApiResponse<SubscriptionDTO>>> GetSubscriptionById(int subscriptionId)
-        {
-            try
-            {
-                var result = await _subscriptionService.GetSubscriptionByIdAsync(subscriptionId);
-
-                if (!result.Success)
-                {
-                    return NotFound(result);
-                }
-
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Abonelik bilgisi alınırken hata: SubscriptionId={SubscriptionId}", subscriptionId);
-                return StatusCode(500, ApiResponse<SubscriptionDTO>.FailResult("Abonelik bilgisi alınamadı"));
-            }
-        }
-
-        [HttpGet("subscriptions/user/{userId}")]
-        public async Task<ActionResult<ApiResponse<SubscriptionDTO>>> GetUserSubscription(int userId)
-        {
-            try
-            {
-                var result = await _subscriptionService.GetUserSubscriptionAsync(userId);
-
-                if (!result.Success)
-                {
-                    return NotFound(result);
-                }
-
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Kullanıcı aboneliği alınırken hata: UserId={UserId}", userId);
-                return StatusCode(500, ApiResponse<SubscriptionDTO>.FailResult("Kullanıcı aboneliği alınamadı"));
-            }
-        }
-
-        [HttpPost("subscriptions")]
-        public async Task<ActionResult<ApiResponse<SubscriptionDTO>>> CreateSubscription([FromBody] CreateSubscriptionRequest request)
-        {
-            try
-            {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ApiResponse<SubscriptionDTO>.FailResult("Geçersiz veri"));
-                }
-
-                var currentUserId = int.Parse(User.FindFirst("UserId")?.Value ?? "0");
-
-                var result = await _subscriptionService.CreateSubscriptionAsync(request);
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogInformation("Yeni abonelik oluşturuldu: UserId={UserId}, By={CurrentUserId}", request.UserId, currentUserId);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Abonelik oluşturulurken hata");
-                return StatusCode(500, ApiResponse<SubscriptionDTO>.FailResult("Abonelik oluşturulamadı"));
-            }
-        }
-
-        [HttpPut("subscriptions/{subscriptionId}")]
-        public async Task<ActionResult<ApiResponse<SubscriptionDTO>>> UpdateSubscription(
-            int subscriptionId,
-            [FromBody] UpdateSubscriptionRequest request)
-        {
-            try
-            {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ApiResponse<SubscriptionDTO>.FailResult("Geçersiz veri"));
-                }
-
-                var currentUserId = int.Parse(User.FindFirst("UserId")?.Value ?? "0");
-
-                var result = await _subscriptionService.UpdateSubscriptionAsync(subscriptionId, request);
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogInformation("Abonelik güncellendi: SubscriptionId={SubscriptionId}, By={CurrentUserId}", subscriptionId, currentUserId);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Abonelik güncellenirken hata: SubscriptionId={SubscriptionId}", subscriptionId);
-                return StatusCode(500, ApiResponse<SubscriptionDTO>.FailResult("Abonelik güncellenemedi"));
-            }
-        }
-
-        [HttpDelete("subscriptions/{subscriptionId}")]
-        public async Task<ActionResult<ApiResponse<bool>>> DeleteSubscription(int subscriptionId)
-        {
-            try
-            {
-                var currentUserId = int.Parse(User.FindFirst("UserId")?.Value ?? "0");
-
-                var result = await _subscriptionService.DeleteSubscriptionAsync(subscriptionId);
-
-                if (!result.Success)
-                {
-                    return BadRequest(result);
-                }
-
-                _logger.LogWarning("Abonelik silindi: SubscriptionId={SubscriptionId}, By={CurrentUserId}", subscriptionId, currentUserId);
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Abonelik silinirken hata: SubscriptionId={SubscriptionId}", subscriptionId);
-                return StatusCode(500, ApiResponse<bool>.FailResult("Abonelik silinemedi"));
-            }
-        }
-
-        [HttpGet("statistics")]
-        public async Task<ActionResult<ApiResponse<AdminStatisticsDto>>> GetStatistics()
-        {
-            try
-            {
-                var result = await _subscriptionService.GetAdminStatisticsAsync();
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "İstatistikler alınırken hata");
-                return StatusCode(500, ApiResponse<AdminStatisticsDto>.FailResult("İstatistikler alınamadı"));
-            }
-        }
+        _context = context;
+        _mapper = mapper;
+        _subscriptionService = subscriptionService;
+        _configuration = configuration;
     }
 
-    public class UpdateSubscriptionRequest
+    // Kullanıcı Yönetimi
+    [HttpGet("users")]
+    public async Task<IActionResult> GetAllUsers(
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? searchTerm = null)
     {
-        public string? PlanType { get; set; }
-        public DateTime? EndDate { get; set; }
-        public string? Status { get; set; }
-        public decimal? Price { get; set; }
+        var query = _context.Users.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            query = query.Where(u => u.Email.Contains(searchTerm) || u.CompanyName.Contains(searchTerm));
+        }
+
+        var totalCount = await query.CountAsync();
+        var users = await query
+            .OrderByDescending(u => u.CreatedAt)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var result = new PagedResult<UserDto>
+        {
+            Items = _mapper.Map<List<UserDto>>(users),
+            TotalCount = totalCount,
+            PageNumber = pageNumber,
+            PageSize = pageSize
+        };
+
+        return Ok(ApiResponse<PagedResult<UserDto>>.SuccessResponse(result));
     }
 
-    public class AdminStatisticsDto
+    [HttpGet("users/{userId}")]
+    public async Task<IActionResult> GetUserDetails(int userId)
     {
-        public int TotalUsers { get; set; }
-        public int ActiveSubscriptions { get; set; }
-        public int ExpiredSubscriptions { get; set; }
-        public int CancelledSubscriptions { get; set; }
-        public decimal TotalRevenue { get; set; }
-        public Dictionary<string, int> SubscriptionsByPlan { get; set; } = new();
+        var user = await _context.Users
+            .Include(u => u.Subscriptions)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+        {
+            return NotFound(ApiResponse<UserDto>.ErrorResponse("Kullanıcı bulunamadı"));
+        }
+
+        var userDto = _mapper.Map<UserDto>(user);
+        return Ok(ApiResponse<UserDto>.SuccessResponse(userDto));
+    }
+
+    // Abonelik Yönetimi
+    [HttpGet("subscriptions")]
+    public async Task<IActionResult> GetAllSubscriptions(
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] SubscriptionStatus? status = null)
+    {
+        var query = _context.Subscriptions
+            .Include(s => s.User)
+            .AsQueryable();
+
+        if (status.HasValue)
+        {
+            query = query.Where(s => s.Status == status.Value);
+        }
+
+        var totalCount = await query.CountAsync();
+        var subscriptions = await query
+            .OrderByDescending(s => s.CreatedAt)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var result = new
+        {
+            Items = subscriptions.Select(s => new
+            {
+                s.Id,
+                s.UserId,
+                UserEmail = s.User.Email,
+                CompanyName = s.User.CompanyName,
+                s.PlanType,
+                s.Status,
+                s.StartDate,
+                s.EndDate,
+                s.IsTrial,
+                s.FinalPrice,
+                s.PaymentGateway,
+                s.CreatedAt
+            }),
+            TotalCount = totalCount,
+            PageNumber = pageNumber,
+            PageSize = pageSize
+        };
+
+        return Ok(ApiResponse<object>.SuccessResponse(result));
+    }
+
+    // Sistem İstatistikleri
+    [HttpGet("statistics")]
+    public async Task<IActionResult> GetSystemStatistics()
+    {
+        var totalUsers = await _context.Users.CountAsync();
+        var activeSubscriptions = await _context.Subscriptions
+            .CountAsync(s => s.Status == SubscriptionStatus.Active && s.EndDate > DateTime.UtcNow);
+        var trialUsers = await _context.Subscriptions
+            .CountAsync(s => s.Status == SubscriptionStatus.Trial && s.EndDate > DateTime.UtcNow);
+        var expiredSubscriptions = await _context.Subscriptions
+            .CountAsync(s => s.Status == SubscriptionStatus.Expired);
+
+        var totalRevenue = await _context.Subscriptions
+            .Where(s => s.Status == SubscriptionStatus.Active)
+            .SumAsync(s => (decimal?)s.FinalPrice) ?? 0;
+
+        var monthlyRevenue = await _context.Subscriptions
+            .Where(s => s.Status == SubscriptionStatus.Active
+                && s.CreatedAt >= DateTime.UtcNow.AddMonths(-1))
+            .SumAsync(s => (decimal?)s.FinalPrice) ?? 0;
+
+        var stats = new
+        {
+            TotalUsers = totalUsers,
+            ActiveSubscriptions = activeSubscriptions,
+            TrialUsers = trialUsers,
+            ExpiredSubscriptions = expiredSubscriptions,
+            TotalRevenue = totalRevenue,
+            MonthlyRevenue = monthlyRevenue,
+            ConversionRate = totalUsers > 0 ? (activeSubscriptions * 100.0 / totalUsers) : 0
+        };
+
+        return Ok(ApiResponse<object>.SuccessResponse(stats));
+    }
+
+    // Ayar Yönetimi
+    [HttpGet("settings/subscription")]
+    public IActionResult GetSubscriptionSettings()
+    {
+        var settings = _configuration.GetSection("SubscriptionSettings");
+        var result = new
+        {
+            TrialEnabled = settings.GetValue<bool>("TrialEnabled"),
+            TrialDurationDays = settings.GetValue<int>("TrialDurationDays"),
+            MonthlyPrice = settings.GetValue<decimal>("MonthlyPrice"),
+            YearlyPrice = settings.GetValue<decimal>("YearlyPrice"),
+            CampaignEnabled = settings.GetValue<bool>("CampaignEnabled"),
+            CampaignDiscountPercent = settings.GetValue<decimal>("CampaignDiscountPercent")
+        };
+
+        return Ok(ApiResponse<object>.SuccessResponse(result));
+    }
+
+    [HttpPut("settings/subscription")]
+    public IActionResult UpdateSubscriptionSettings([FromBody] object settings)
+    {
+        // Bu endpoint için appsettings.json'ı runtime'da güncellemek gerekir
+        // Production'da bunun yerine database'de ayarlar tutulmalı
+        return Ok(ApiResponse.SuccessResponse("Ayarlar güncelleme özelliği eklenecek"));
+    }
+
+    // Manuel İşlemler
+    [HttpPost("subscriptions/{subscriptionId}/cancel")]
+    public async Task<IActionResult> CancelSubscription(int subscriptionId)
+    {
+        var subscription = await _context.Subscriptions.FindAsync(subscriptionId);
+        if (subscription == null)
+        {
+            return NotFound(ApiResponse.ErrorResponse("Abonelik bulunamadı"));
+        }
+
+        subscription.Status = SubscriptionStatus.Cancelled;
+        subscription.CancelledAt = DateTime.UtcNow;
+        subscription.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return Ok(ApiResponse.SuccessResponse("Abonelik iptal edildi"));
+    }
+
+    [HttpPost("process-expired-subscriptions")]
+    public async Task<IActionResult> ProcessExpiredSubscriptions()
+    {
+        await _subscriptionService.ProcessExpiredSubscriptionsAsync();
+        return Ok(ApiResponse.SuccessResponse("Süre dolmuş abonelikler işlendi"));
+    }
+
+    // Kullanıcı Silme (Soft Delete)
+    [HttpDelete("users/{userId}")]
+    public async Task<IActionResult> DeleteUser(int userId)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+        {
+            return NotFound(ApiResponse.ErrorResponse("Kullanıcı bulunamadı"));
+        }
+
+        if (user.Role == UserRole.Admin)
+        {
+            return BadRequest(ApiResponse.ErrorResponse("Admin kullanıcılar silinemez"));
+        }
+
+        user.IsDeleted = true;
+        user.DeletedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return Ok(ApiResponse.SuccessResponse("Kullanıcı silindi"));
     }
 }

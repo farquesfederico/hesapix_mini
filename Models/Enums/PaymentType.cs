@@ -1,8 +1,7 @@
-﻿namespace Hesapix.Models.Enums
+﻿namespace Hesapix.Models.Enums;
+
+public enum PaymentType
 {
-    public enum PaymentType
-    {
-        Sale = 1,
-        Subscription = 2
-    }
+    Income = 0,
+    Expense = 1
 }

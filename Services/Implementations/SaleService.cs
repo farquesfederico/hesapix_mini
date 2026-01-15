@@ -3,296 +3,378 @@ using Hesapix.Data;
 using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Sale;
 using Hesapix.Models.Entities;
+using Hesapix.Models.Enums;
 using Hesapix.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
-namespace Hesapix.Services.Implementations
+namespace Hesapix.Services.Implementations;
+
+public class SaleService : ISaleService
 {
-    public class SaleService : ISaleService
+    private readonly ApplicationDbContext _context;
+    private readonly IMapper _mapper;
+
+    public SaleService(ApplicationDbContext context, IMapper mapper)
     {
-        private readonly ApplicationDbContext _context;
-        private readonly IMapper _mapper;
-        private readonly ILogger<SaleService> _logger;
+        _context = context;
+        _mapper = mapper;
+    }
 
-        public SaleService(
-            ApplicationDbContext context,
-            IMapper mapper,
-            ILogger<SaleService> logger)
+    public async Task<PagedResult<SaleDto>> GetSalesAsync(int userId, int pageNumber = 1, int pageSize = 10,
+        DateTime? startDate = null, DateTime? endDate = null)
+    {
+        var query = _context.Sales
+            .Include(s => s.SaleItems)
+            .Where(s => s.UserId == userId);
+
+        if (startDate.HasValue)
+            query = query.Where(s => s.SaleDate >= startDate.Value);
+
+        if (endDate.HasValue)
+            query = query.Where(s => s.SaleDate <= endDate.Value);
+
+        var totalCount = await query.CountAsync();
+
+        var sales = await query
+            .OrderByDescending(s => s.SaleDate)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return new PagedResult<SaleDto>
         {
-            _context = context;
-            _mapper = mapper;
-            _logger = logger;
+            Items = _mapper.Map<List<SaleDto>>(sales),
+            TotalCount = totalCount,
+            PageNumber = pageNumber,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<SaleDto?> GetSaleByIdAsync(int id, int userId)
+    {
+        var sale = await _context.Sales
+            .Include(s => s.SaleItems)
+            .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+
+        return sale != null ? _mapper.Map<SaleDto>(sale) : null;
+    }
+
+    public async Task<SaleDto?> GetSaleByNumberAsync(string saleNumber, int userId)
+    {
+        var sale = await _context.Sales
+            .Include(s => s.SaleItems)
+            .FirstOrDefaultAsync(s => s.SaleNumber == saleNumber && s.UserId == userId);
+
+        return sale != null ? _mapper.Map<SaleDto>(sale) : null;
+    }
+
+    public async Task<(bool Success, string Message, SaleDto? Data)> CreateSaleAsync(CreateSaleRequest request, int userId)
+    {
+        if (!request.Items.Any())
+        {
+            return (false, "Satış kalemleri boş olamaz", null);
         }
 
-        public async Task<ApiResponse<List<SaleDto>>> GetSalesByUserIdAsync(
-            int userId,
-            DateTime? startDate,
-            DateTime? endDate,
-            int page,
-            int pageSize)
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
         {
-            var query = _context.Sales
-                .Include(s => s.SaleItems)
-                    .ThenInclude(si => si.Stock)
-                .Where(s => s.UserId == userId); // Güvenlik: Sadece kendi verilerine erişim
-
-            if (startDate.HasValue)
+            // Stok kontrolü
+            foreach (var item in request.Items)
             {
-                query = query.Where(s => s.SaleDate >= startDate.Value);
-            }
-
-            if (endDate.HasValue)
-            {
-                query = query.Where(s => s.SaleDate <= endDate.Value);
-            }
-
-            var totalCount = await query.CountAsync();
-
-            var sales = await query
-                .OrderByDescending(s => s.SaleDate)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .AsNoTracking()
-                .ToListAsync();
-
-            var saleDtos = _mapper.Map<List<SaleDto>>(sales);
-
-            return ApiResponse<List<SaleDto>>.SuccessResult(saleDtos, $"Toplam {totalCount} satış bulundu");
-        }
-
-        public async Task<ApiResponse<SaleDto>> GetSaleByIdAsync(int saleId, int userId)
-        {
-            var sale = await _context.Sales
-                .Include(s => s.SaleItems)
-                    .ThenInclude(si => si.Stock)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId); // Güvenlik kontrolü
-
-            if (sale == null)
-            {
-                return ApiResponse<SaleDto>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
-            }
-
-            var saleDto = _mapper.Map<SaleDto>(sale);
-            return ApiResponse<SaleDto>.SuccessResult(saleDto);
-        }
-
-        public async Task<ApiResponse<SaleDto>> CreateSaleAsync(CreateSaleRequest request, int userId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
-            {
-                // Stok kontrolü
-                foreach (var item in request.Items)
+                var stock = await _context.Stocks.FindAsync(item.StockId);
+                if (stock == null || stock.UserId != userId)
                 {
-                    var stock = await _context.Stocks
-                        .FirstOrDefaultAsync(s => s.Id == item.StokId && s.UserId == userId); // Güvenlik kontrolü
-
-                    if (stock == null)
-                    {
-                        await transaction.RollbackAsync();
-                        return ApiResponse<SaleDto>.FailResult($"Stok bulunamadı: {item.StokId}");
-                    }
-
-                    if (stock.Quantity < item.Quantity)
-                    {
-                        await transaction.RollbackAsync();
-                        return ApiResponse<SaleDto>.FailResult($"Yetersiz stok: {stock.ProductName} (Mevcut: {stock.Quantity}, İstenen: {item.Quantity})");
-                    }
+                    return (false, $"Stok bulunamadı: {item.StockId}", null);
                 }
 
-                var sale = new Sale
+                if (stock.Quantity < item.Quantity)
                 {
-                    UserId = userId,
-                    CustomerName = request.CustomerName,
-                    CustomerPhone = request.CustomerPhone,
-                    CustomerEmail = request.CustomerEmail,
-                    SaleDate = request.SaleDate ?? DateTime.UtcNow,
-                    TotalAmount = 0,
-                    PaidAmount = request.PaidAmount,
-                    PaymentMethod = request.PaymentMethod,
-                    Notes = request.Notes,
-                    CreatedAt = DateTime.UtcNow
+                    return (false, $"{stock.ProductName} için yetersiz stok", null);
+                }
+            }
+
+            // Satış numarası oluştur
+            var saleNumber = await GenerateSaleNumberAsync(userId);
+
+            // Hesaplamalar
+            decimal subTotal = request.Items.Sum(i => i.Quantity * i.UnitPrice);
+            decimal taxAmount = subTotal * (request.TaxRate / 100);
+            decimal totalAmount = subTotal + taxAmount - request.DiscountAmount;
+
+            var sale = new Sale
+            {
+                UserId = userId,
+                SaleNumber = saleNumber,
+                SaleDate = request.SaleDate,
+                CustomerName = request.CustomerName,
+                CustomerTaxNumber = request.CustomerTaxNumber,
+                CustomerPhone = request.CustomerPhone,
+                CustomerAddress = request.CustomerAddress,
+                SubTotal = subTotal,
+                TaxRate = request.TaxRate,
+                TaxAmount = taxAmount,
+                DiscountAmount = request.DiscountAmount,
+                TotalAmount = totalAmount,
+                PaymentMethod = request.PaymentMethod,
+                PaymentStatus = PaymentStatus.Pending,
+                Notes = request.Notes,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.Sales.Add(sale);
+            await _context.SaveChangesAsync();
+
+            // Sale items oluştur ve stok düş
+            foreach (var itemRequest in request.Items)
+            {
+                var stock = await _context.Stocks.FindAsync(itemRequest.StockId);
+
+                var saleItem = new SaleItem
+                {
+                    SaleId = sale.Id,
+                    StockId = itemRequest.StockId,
+                    ProductCode = stock!.ProductCode,
+                    ProductName = stock.ProductName,
+                    Quantity = itemRequest.Quantity,
+                    UnitPrice = itemRequest.UnitPrice,
+                    TotalPrice = itemRequest.Quantity * itemRequest.UnitPrice
                 };
 
-                _context.Sales.Add(sale);
-                await _context.SaveChangesAsync();
+                _context.SaleItems.Add(saleItem);
 
-                decimal totalAmount = 0;
-
-                foreach (var item in request.Items)
-                {
-                    var stock = await _context.Stocks.FindAsync(item.StokId);
-
-                    var saleItem = new SaleItem
-                    {
-                        SaleId = sale.Id,
-                        StokId = item.StokId,
-                        Quantity = item.Quantity,
-                        UnitPrice = item.UnitPrice,
-                        TotalPrice = item.Quantity * item.UnitPrice
-                    };
-
-                    _context.SaleItems.Add(saleItem);
-                    totalAmount += saleItem.TotalPrice;
-
-                    // Stok güncelleme
-                    stock!.Quantity -= item.Quantity;
-                }
-
-                sale.TotalAmount = totalAmount;
-                sale.RemainingAmount = totalAmount - request.PaidAmount;
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                var saleDto = await GetSaleByIdAsync(sale.Id, userId);
-                return saleDto;
+                // Stok güncelle
+                stock.Quantity -= itemRequest.Quantity;
+                stock.UpdatedAt = DateTime.UtcNow;
             }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Satış oluşturulurken hata");
-                return ApiResponse<SaleDto>.FailResult("Satış oluşturulamadı");
-            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            var createdSale = await GetSaleByIdAsync(sale.Id, userId);
+            return (true, "Satış başarıyla oluşturuldu", createdSale);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            return (false, $"Satış oluşturulurken hata: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, SaleDto? Data)> UpdateSaleAsync(int id, CreateSaleRequest request, int userId)
+    {
+        var sale = await _context.Sales
+            .Include(s => s.SaleItems)
+            .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+
+        if (sale == null)
+        {
+            return (false, "Satış bulunamadı", null);
         }
 
-        public async Task<ApiResponse<SaleDto>> UpdateSaleAsync(int saleId, CreateSaleRequest request, int userId)
+        if (sale.PaymentStatus == PaymentStatus.Paid)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            return (false, "Ödeme yapılmış satışlar güncellenemez", null);
+        }
 
-            try
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            // Eski stokları geri ekle
+            foreach (var oldItem in sale.SaleItems)
             {
-                var sale = await _context.Sales
-                    .Include(s => s.SaleItems)
-                    .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId); // Güvenlik kontrolü
+                var stock = await _context.Stocks.FindAsync(oldItem.StockId);
+                if (stock != null)
+                {
+                    stock.Quantity += oldItem.Quantity;
+                }
+            }
 
-                if (sale == null)
+            // Eski itemları sil
+            _context.SaleItems.RemoveRange(sale.SaleItems);
+            await _context.SaveChangesAsync();
+
+            // Yeni stok kontrolü
+            foreach (var item in request.Items)
+            {
+                var stock = await _context.Stocks.FindAsync(item.StockId);
+                if (stock == null || stock.UserId != userId)
                 {
                     await transaction.RollbackAsync();
-                    return ApiResponse<SaleDto>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
+                    return (false, $"Stok bulunamadı: {item.StockId}", null);
                 }
 
-                // Eski stokları geri yükle
-                foreach (var oldItem in sale.SaleItems)
-                {
-                    var stock = await _context.Stocks.FindAsync(oldItem.StokId);
-                    if (stock != null)
-                    {
-                        stock.Quantity += (int)oldItem.Quantity;
-                    }
-                }
-
-                // Eski satış itemlerini sil
-                _context.SaleItems.RemoveRange(sale.SaleItems);
-
-                // Yeni stok kontrolü
-                foreach (var item in request.Items)
-                {
-                    var stock = await _context.Stocks
-                        .FirstOrDefaultAsync(s => s.Id == item.StokId && s.UserId == userId); // Güvenlik kontrolü
-
-                    if (stock == null)
-                    {
-                        await transaction.RollbackAsync();
-                        return ApiResponse<SaleDto>.FailResult($"Stok bulunamadı: {item.StokId}");
-                    }
-
-                    if (stock.Quantity < item.Quantity)
-                    {
-                        await transaction.RollbackAsync();
-                        return ApiResponse<SaleDto>.FailResult($"Yetersiz stok: {stock.ProductName}");
-                    }
-                }
-
-                // Satış bilgilerini güncelle
-                sale.CustomerName = request.CustomerName;
-                sale.CustomerPhone = request.CustomerPhone;
-                sale.CustomerEmail = request.CustomerEmail;
-                sale.SaleDate = request.SaleDate ?? sale.SaleDate;
-                sale.PaidAmount = request.PaidAmount;
-                sale.PaymentMethod = request.PaymentMethod;
-                sale.Notes = request.Notes;
-                sale.UpdatedAt = DateTime.UtcNow;
-
-                decimal totalAmount = 0;
-
-                // Yeni satış itemlerini ekle
-                foreach (var item in request.Items)
-                {
-                    var stock = await _context.Stocks.FindAsync(item.StokId);
-
-                    var saleItem = new SaleItem
-                    {
-                        SaleId = sale.Id,
-                        StokId = item.StokId,
-                        Quantity = item.Quantity,
-                        UnitPrice = item.UnitPrice,
-                        TotalPrice = item.Quantity * item.UnitPrice
-                    };
-
-                    _context.SaleItems.Add(saleItem);
-                    totalAmount += saleItem.TotalPrice;
-
-                    stock!.Quantity -= item.Quantity;
-                }
-
-                sale.TotalAmount = totalAmount;
-                sale.RemainingAmount = totalAmount - request.PaidAmount;
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                var saleDto = await GetSaleByIdAsync(sale.Id, userId);
-                return saleDto;
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Satış güncellenirken hata: SaleId={SaleId}", saleId);
-                return ApiResponse<SaleDto>.FailResult("Satış güncellenemedi");
-            }
-        }
-
-        public async Task<ApiResponse<bool>> DeleteSaleAsync(int saleId, int userId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
-            {
-                var sale = await _context.Sales
-                    .Include(s => s.SaleItems)
-                    .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId); // Güvenlik kontrolü
-
-                if (sale == null)
+                if (stock.Quantity < item.Quantity)
                 {
                     await transaction.RollbackAsync();
-                    return ApiResponse<bool>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
+                    return (false, $"{stock.ProductName} için yetersiz stok", null);
                 }
-
-                // Stokları geri yükle
-                foreach (var item in sale.SaleItems)
-                {
-                    var stock = await _context.Stocks.FindAsync(item.StokId);
-                    if (stock != null)
-                    {
-                        stock.Quantity += item.Quantity;
-                    }
-                }
-
-                _context.Sales.Remove(sale);
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                return ApiResponse<bool>.SuccessResult(true, "Satış silindi");
             }
-            catch (Exception ex)
+
+            // Hesaplamalar
+            decimal subTotal = request.Items.Sum(i => i.Quantity * i.UnitPrice);
+            decimal taxAmount = subTotal * (request.TaxRate / 100);
+            decimal totalAmount = subTotal + taxAmount - request.DiscountAmount;
+
+            // Sale güncelle
+            sale.SaleDate = request.SaleDate;
+            sale.CustomerName = request.CustomerName;
+            sale.CustomerTaxNumber = request.CustomerTaxNumber;
+            sale.CustomerPhone = request.CustomerPhone;
+            sale.CustomerAddress = request.CustomerAddress;
+            sale.SubTotal = subTotal;
+            sale.TaxRate = request.TaxRate;
+            sale.TaxAmount = taxAmount;
+            sale.DiscountAmount = request.DiscountAmount;
+            sale.TotalAmount = totalAmount;
+            sale.PaymentMethod = request.PaymentMethod;
+            sale.Notes = request.Notes;
+            sale.UpdatedAt = DateTime.UtcNow;
+
+            // Yeni itemlar ekle
+            foreach (var itemRequest in request.Items)
             {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Satış silinirken hata: SaleId={SaleId}", saleId);
-                return ApiResponse<bool>.FailResult("Satış silinemedi");
+                var stock = await _context.Stocks.FindAsync(itemRequest.StockId);
+
+                var saleItem = new SaleItem
+                {
+                    SaleId = sale.Id,
+                    StockId = itemRequest.StockId,
+                    ProductCode = stock!.ProductCode,
+                    ProductName = stock.ProductName,
+                    Quantity = itemRequest.Quantity,
+                    UnitPrice = itemRequest.UnitPrice,
+                    TotalPrice = itemRequest.Quantity * itemRequest.UnitPrice
+                };
+
+                _context.SaleItems.Add(saleItem);
+                stock.Quantity -= itemRequest.Quantity;
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            var updatedSale = await GetSaleByIdAsync(sale.Id, userId);
+            return (true, "Satış başarıyla güncellendi", updatedSale);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            return (false, $"Satış güncellenirken hata: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message)> DeleteSaleAsync(int id, int userId)
+    {
+        var sale = await _context.Sales
+            .Include(s => s.SaleItems)
+            .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+
+        if (sale == null)
+        {
+            return (false, "Satış bulunamadı");
+        }
+
+        // Soft delete
+        sale.IsDeleted = true;
+        sale.DeletedAt = DateTime.UtcNow;
+
+        // Stokları geri ekle
+        foreach (var item in sale.SaleItems)
+        {
+            var stock = await _context.Stocks.FindAsync(item.StockId);
+            if (stock != null)
+            {
+                stock.Quantity += item.Quantity;
             }
         }
+
+        await _context.SaveChangesAsync();
+        return (true, "Satış başarıyla silindi");
+    }
+
+    public async Task<(bool Success, string Message)> CancelSaleAsync(int id, int userId)
+    {
+        var sale = await _context.Sales
+            .Include(s => s.SaleItems)
+            .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+
+        if (sale == null)
+        {
+            return (false, "Satış bulunamadı");
+        }
+
+        sale.PaymentStatus = PaymentStatus.Cancelled;
+        sale.UpdatedAt = DateTime.UtcNow;
+
+        // Stokları geri ekle
+        foreach (var item in sale.SaleItems)
+        {
+            var stock = await _context.Stocks.FindAsync(item.StockId);
+            if (stock != null)
+            {
+                stock.Quantity += item.Quantity;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return (true, "Satış iptal edildi");
+    }
+
+    public async Task<(bool Success, string Message)> UpdateSalePaymentStatusAsync(int id, int userId)
+    {
+        var sale = await _context.Sales.FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+
+        if (sale == null)
+        {
+            return (false, "Satış bulunamadı");
+        }
+
+        sale.PaymentStatus = PaymentStatus.Paid;
+        sale.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return (true, "Ödeme durumu güncellendi");
+    }
+
+    public async Task<PagedResult<SaleDto>> GetPendingPaymentSalesAsync(int userId, int pageNumber = 1, int pageSize = 10)
+    {
+        var query = _context.Sales
+            .Include(s => s.SaleItems)
+            .Where(s => s.UserId == userId && s.PaymentStatus == PaymentStatus.Pending);
+
+        var totalCount = await query.CountAsync();
+
+        var sales = await query
+            .OrderByDescending(s => s.SaleDate)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return new PagedResult<SaleDto>
+        {
+            Items = _mapper.Map<List<SaleDto>>(sales),
+            TotalCount = totalCount,
+            PageNumber = pageNumber,
+            PageSize = pageSize
+        };
+    }
+
+    private async Task<string> GenerateSaleNumberAsync(int userId)
+    {
+        var today = DateTime.UtcNow;
+        var prefix = $"SAL-{today:yyyyMMdd}";
+
+        var lastSale = await _context.Sales
+            .Where(s => s.UserId == userId && s.SaleNumber.StartsWith(prefix))
+            .OrderByDescending(s => s.SaleNumber)
+            .FirstOrDefaultAsync();
+
+        if (lastSale == null)
+        {
+            return $"{prefix}-0001";
+        }
+
+        var lastNumber = int.Parse(lastSale.SaleNumber.Split('-').Last());
+        return $"{prefix}-{(lastNumber + 1):D4}";
     }
 }

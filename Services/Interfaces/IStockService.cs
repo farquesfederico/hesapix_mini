@@ -1,16 +1,14 @@
-﻿using Hesapix.Controllers;
-using Hesapix.Models.Common;
+﻿using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Stock;
 
-namespace Hesapix.Services.Interfaces
+namespace Hesapix.Services.Interfaces;
+
+public interface IStokService
 {
-    public interface IStockService
-    {
-        Task<ApiResponse<List<StockDto>>> GetStocksByUserIdAsync(int userId, string? search, int page, int pageSize);
-        Task<ApiResponse<StockDto>> GetStockByIdAsync(int stockId, int userId);
-        Task<ApiResponse<StockDto>> CreateStockAsync(CreateStockRequest request, int userId);
-        Task<ApiResponse<StockDto>> UpdateStockAsync(int stockId, CreateStockRequest request, int userId);
-        Task<ApiResponse<bool>> DeleteStockAsync(int stockId, int userId);
-        Task<ApiResponse<List<StockDto>>> GetLowStockItemsAsync(int userId, int threshold);
-    }
+    Task<PagedResult<StockDto>> GetStocksAsync(int userId, int pageNumber = 1, int pageSize = 10, string? searchTerm = null, bool? lowStockOnly = null);
+    Task<StockDto?> GetStockByIdAsync(int id, int userId);
+    Task<(bool Success, string Message, StockDto? Data)> CreateStockAsync(CreateStockRequest request, int userId);
+    Task<(bool Success, string Message, StockDto? Data)> UpdateStockAsync(int id, UpdateStockRequest request, int userId);
+    Task<(bool Success, string Message)> DeleteStockAsync(int id, int userId);
+    Task<bool> UpdateStockQuantityAsync(int stockId, int quantity, int userId);
 }

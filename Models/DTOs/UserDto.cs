@@ -1,16 +1,17 @@
-﻿using Hesapix.Models.DTOs.Subs;
+﻿using Hesapix.Models.Enums;
 
-namespace Hesapix.Models.DTOs
+namespace Hesapix.Models.DTOs;
+
+public class UserDto
 {
-    public class UserDto
-    {
-        public int Id { get; set; }
-        public string FullName { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
-        public string Role { get; set; } = string.Empty;
-        public DateTime CreatedAt { get; set; }
-        public DateTime? LastLoginAt { get; set; }
-        public bool IsActive { get; set; }
-        public SubscriptionDTO? Subscription { get; set; }
-    }
+    public int Id { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public string CompanyName { get; set; } = string.Empty;
+    public string? TaxNumber { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
+    public UserRole Role { get; set; }
+    public bool IsEmailVerified { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
 }
