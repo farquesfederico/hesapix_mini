@@ -1,7 +1,9 @@
 ﻿using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
-using Hesapix.Data;
 using Hesapix.Services.Interfaces;
+using Hesapix.Data;
+using Hesapix.Models.Enums;
+using Hesapix.Models.Entities;
 
 namespace Hesapix.Services.Implementations
 {
@@ -86,9 +88,9 @@ namespace Hesapix.Services.Implementations
             return stream.ToArray();
         }
 
-        public async Task<byte[]> ExportStocksAsync(int userId)
+        public async Task<byte[]> ExportStoksAsync(int userId)
         {
-            var stocks = await _context.Stocks
+            var Stoks = await _context.Stocks
                 .Where(s => s.UserId == userId && s.IsActive)
                 .OrderBy(s => s.Category)
                 .ThenBy(s => s.ProductName)
@@ -118,7 +120,7 @@ namespace Hesapix.Services.Implementations
 
             // Data
             int row = 2;
-            foreach (var stock in stocks)
+            foreach (var stock in Stoks)
             {
                 var totalValue = stock.Quantity * stock.PurchasePrice;
                 var lowStock = stock.MinimumStock.HasValue && stock.Quantity <= stock.MinimumStock.Value;
@@ -154,7 +156,7 @@ namespace Hesapix.Services.Implementations
             // Totals
             worksheet.Cell(row, 10).Value = "TOPLAM:";
             worksheet.Cell(row, 10).Style.Font.Bold = true;
-            worksheet.Cell(row, 11).Value = stocks.Sum(s => s.Quantity * s.PurchasePrice);
+            worksheet.Cell(row, 11).Value = Stoks.Sum(s => s.Quantity * s.PurchasePrice);
             worksheet.Cell(row, 11).Style.NumberFormat.Format = "#,##0.00 ₺";
             worksheet.Cell(row, 11).Style.Font.Bold = true;
             worksheet.Cell(row, 11).Style.Fill.BackgroundColor = XLColor.LightYellow;
@@ -212,7 +214,7 @@ namespace Hesapix.Services.Implementations
                 worksheet.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00 ₺";
 
                 // Color coding
-                if (payment.PaymentType == Models.Entities.PaymentType.Income)
+                if (payment.PaymentType == Models.Enums.PaymentType.Income)
                 {
                     worksheet.Cell(row, 6).Style.Font.FontColor = XLColor.Green;
                     totalIncome += payment.Amount;
@@ -259,37 +261,37 @@ namespace Hesapix.Services.Implementations
             return stream.ToArray();
         }
 
-        private static string GetPaymentStatusText(Models.Entities.PaymentStatus status)
+        private static string GetPaymentStatusText(Models.Enums.PaymentStatus status)
         {
             return status switch
             {
-                Models.Entities.PaymentStatus.Pending => "Beklemede",
-                Models.Entities.PaymentStatus.PartialPaid => "Kısmi Ödendi",
-                Models.Entities.PaymentStatus.Paid => "Ödendi",
-                Models.Entities.PaymentStatus.Cancelled => "İptal",
+                Models.Enums.PaymentStatus.Pending => "Beklemede",
+                Models.Enums.PaymentStatus.PartialPaid => "Kısmi Ödendi",
+                Models.Enums.PaymentStatus.Paid => "Ödendi",
+                Models.Enums.PaymentStatus.Cancelled => "İptal",
                 _ => "Bilinmiyor"
             };
         }
 
-        private static string GetPaymentTypeText(Models.Entities.PaymentType type)
+        private static string GetPaymentTypeText(Models.Enums.PaymentType type)
         {
             return type switch
             {
-                Models.Entities.PaymentType.Income => "Gelir",
-                Models.Entities.PaymentType.Expense => "Gider",
+                Models.Enums.PaymentType.Income => "Gelir",
+                Models.Enums.PaymentType.Expense => "Gider",
                 _ => "Bilinmiyor"
             };
         }
 
-        private static string GetPaymentMethodText(Models.Entities.PaymentMethod method)
+        private static string GetPaymentMethodText(Models.Enums.PaymentMethod method)
         {
             return method switch
             {
-                Models.Entities.PaymentMethod.Cash => "Nakit",
-                Models.Entities.PaymentMethod.CreditCard => "Kredi Kartı",
-                Models.Entities.PaymentMethod.BankTransfer => "Banka Havalesi",
-                Models.Entities.PaymentMethod.Check => "Çek",
-                Models.Entities.PaymentMethod.Other => "Diğer",
+                Models.Enums.PaymentMethod.Cash => "Nakit",
+                Models.Enums.PaymentMethod.CreditCard => "Kredi Kartı",
+                Models.Enums.PaymentMethod.BankTransfer => "Banka Havalesi",
+                Models.Enums.PaymentMethod.Check => "Çek",
+                Models.Enums.PaymentMethod.Other => "Diğer",
                 _ => "Bilinmiyor"
             };
         }

@@ -1,211 +1,207 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using AutoMapper;
+using Hesapix.Controllers;
 using Hesapix.Data;
+using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Stock;
 using Hesapix.Models.Entities;
 using Hesapix.Services.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace Hesapix.Services.Implementations
 {
-    public class StockService : IStockService
+    public class StokService : IStockService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMapper _mapper;
+        private readonly ILogger<StokService> _logger;
 
-        public StockService(ApplicationDbContext context)
+        public StokService(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ILogger<StokService> logger)
         {
             _context = context;
+            _mapper = mapper;
+            _logger = logger;
         }
 
-        public async Task<List<StockDto>> GetAllStocks(int userId)
+        public async Task<ApiResponse<List<StockDto>>> GetStocksByUserIdAsync(int userId, string? search, int page, int pageSize)
         {
-            var stocks = await _context.Stocks
-                .Where(s => s.UserId == userId && s.IsActive)
-                .OrderBy(s => s.ProductName)
-                .ToListAsync();
-
-            return stocks.Select(MapToDto).ToList();
-        }
-
-        public async Task<StockDto> GetStockById(int id, int userId)
-        {
-            var stock = await _context.Stocks
-                .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId && s.IsActive);
-
-            if (stock == null)
+            try
             {
-                throw new Exception("Stok bulunamadı");
-            }
+                var query = _context.Stocks
+                    .Where(s => s.UserId == userId);
 
-            return MapToDto(stock);
-        }
-
-        public async Task<StockDto> GetStockByCode(string productCode, int userId)
-        {
-            var stock = await _context.Stocks
-                .FirstOrDefaultAsync(s => s.ProductCode == productCode && s.UserId == userId && s.IsActive);
-
-            if (stock == null)
-            {
-                throw new Exception("Stok bulunamadı");
-            }
-
-            return MapToDto(stock);
-        }
-
-        public async Task<StockDto> CreateStock(StockDto dto, int userId)
-        {
-            // Aynı ürün kodunun olup olmadığını kontrol et
-            var exists = await _context.Stocks
-                .AnyAsync(s => s.UserId == userId && s.ProductCode == dto.ProductCode && s.IsActive);
-
-            if (exists)
-            {
-                throw new Exception("Bu ürün kodu zaten mevcut");
-            }
-
-            var stock = new Stock
-            {
-                UserId = userId,
-                ProductCode = dto.ProductCode,
-                ProductName = dto.ProductName,
-                Description = dto.Description,
-                Category = dto.Category,
-                Unit = dto.Unit,
-                Quantity = dto.Quantity,
-                PurchasePrice = dto.PurchasePrice,
-                SalePrice = dto.SalePrice,
-                MinimumStock = dto.MinimumStock,
-                Barcode = dto.Barcode,
-                CreatedDate = DateTime.UtcNow,
-                IsActive = true
-            };
-
-            _context.Stocks.Add(stock);
-            await _context.SaveChangesAsync();
-
-            return MapToDto(stock);
-        }
-
-        public async Task<StockDto> UpdateStock(int id, StockDto dto, int userId)
-        {
-            var stock = await _context.Stocks
-                .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId && s.IsActive);
-
-            if (stock == null)
-            {
-                throw new Exception("Stok bulunamadı");
-            }
-
-            // Ürün kodu değiştiriliyorsa, başka bir üründe kullanılmadığını kontrol et
-            if (stock.ProductCode != dto.ProductCode)
-            {
-                var codeExists = await _context.Stocks
-                    .AnyAsync(s => s.UserId == userId && s.ProductCode == dto.ProductCode && s.Id != id && s.IsActive);
-
-                if (codeExists)
+                if (!string.IsNullOrWhiteSpace(search))
                 {
-                    throw new Exception("Bu ürün kodu başka bir ürün tarafından kullanılıyor");
+                    search = search.ToLower();
+                    query = query.Where(s =>
+                        s.ProductName.ToLower().Contains(search) ||
+                        (s.ProductCode != null && s.ProductCode.ToLower().Contains(search)) ||
+                        (s.Category != null && s.Category.ToLower().Contains(search)));
                 }
+
+                var totalCount = await query.CountAsync();
+
+                var stocks = await query
+                    .OrderBy(s => s.ProductName)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                var stockDtos = _mapper.Map<List<StockDto>>(stocks);
+
+                return ApiResponse<List<StockDto>>.SuccessResult(stockDtos, $"Toplam {totalCount} stok bulundu");
             }
-
-            stock.ProductCode = dto.ProductCode;
-            stock.ProductName = dto.ProductName;
-            stock.Description = dto.Description;
-            stock.Category = dto.Category;
-            stock.Unit = dto.Unit;
-            stock.Quantity = dto.Quantity;
-            stock.PurchasePrice = dto.PurchasePrice;
-            stock.SalePrice = dto.SalePrice;
-            stock.MinimumStock = dto.MinimumStock;
-            stock.Barcode = dto.Barcode;
-            stock.UpdatedDate = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            return MapToDto(stock);
-        }
-
-        public async Task<bool> DeleteStock(int id, int userId)
-        {
-            var stock = await _context.Stocks
-                .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId && s.IsActive);
-
-            if (stock == null)
+            catch (Exception ex)
             {
-                return false;
+                _logger.LogError(ex, "Stoklar listeleme hatası");
+                return ApiResponse<List<StockDto>>.FailResult("Stoklar listelenemedi");
             }
-
-            // Soft delete
-            stock.IsActive = false;
-            stock.UpdatedDate = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-
-            return true;
         }
 
-        public async Task<bool> UpdateStockQuantity(int stockId, decimal quantity, int userId)
+        public async Task<ApiResponse<StockDto>> GetStockByIdAsync(int stockId, int userId)
         {
-            var stock = await _context.Stocks
-                .FirstOrDefaultAsync(s => s.Id == stockId && s.UserId == userId && s.IsActive);
-
-            if (stock == null)
+            try
             {
-                return false;
+                var stock = await _context.Stocks
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.Id == stockId && s.UserId == userId);
+
+                if (stock == null)
+                {
+                    return ApiResponse<StockDto>.FailResult("Stok bulunamadı veya erişim yetkiniz yok");
+                }
+
+                var stockDto = _mapper.Map<StockDto>(stock);
+                return ApiResponse<StockDto>.SuccessResult(stockDto);
             }
-
-            stock.Quantity += quantity;
-            stock.UpdatedDate = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-
-            return true;
-        }
-
-        public async Task<List<StockDto>> GetLowStocks(int userId)
-        {
-            var stocks = await _context.Stocks
-                .Where(s => s.UserId == userId &&
-                           s.IsActive &&
-                           s.MinimumStock.HasValue &&
-                           s.Quantity <= s.MinimumStock.Value)
-                .OrderBy(s => s.Quantity)
-                .ToListAsync();
-
-            return stocks.Select(MapToDto).ToList();
-        }
-
-        public async Task<List<StockDto>> SearchStocks(string searchTerm, int userId)
-        {
-            var stocks = await _context.Stocks
-                .Where(s => s.UserId == userId &&
-                           s.IsActive &&
-                           (s.ProductName.Contains(searchTerm) ||
-                            s.ProductCode.Contains(searchTerm) ||
-                            (s.Barcode != null && s.Barcode.Contains(searchTerm))))
-                .OrderBy(s => s.ProductName)
-                .ToListAsync();
-
-            return stocks.Select(MapToDto).ToList();
-        }
-
-        #region Private Methods
-
-        private StockDto MapToDto(Stock stock)
-        {
-            return new StockDto
+            catch (Exception ex)
             {
-                Id = stock.Id,
-                ProductCode = stock.ProductCode,
-                ProductName = stock.ProductName,
-                Description = stock.Description,
-                Category = stock.Category,
-                Unit = stock.Unit,
-                Quantity = stock.Quantity,
-                PurchasePrice = stock.PurchasePrice,
-                SalePrice = stock.SalePrice,
-                MinimumStock = stock.MinimumStock,
-                Barcode = stock.Barcode
-            };
+                _logger.LogError(ex, "Stok bilgisi alma hatası");
+                return ApiResponse<StockDto>.FailResult("Stok bilgisi alınamadı");
+            }
         }
 
-        #endregion
+        public async Task<ApiResponse<StockDto>> CreateStockAsync(CreateStockRequest request, int userId)
+        {
+            try
+            {
+                var stock = new Stok
+                {
+                    UserId = userId,
+                    ProductName = request.ProductName,
+                    ProductCode = request.ProductCode,
+                    Category = request.Category,
+                    Quantity = request.Quantity,
+                    UnitPrice = request.UnitPrice,
+                    CostPrice = request.CostPrice,
+                    Unit = request.Unit,
+                    MinStockLevel = request.MinStockLevel,
+                    Description = request.Description,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _context.Stocks.Add(stock);
+                await _context.SaveChangesAsync();
+
+                var stockDto = _mapper.Map<StockDto>(stock);
+                return ApiResponse<StockDto>.SuccessResult(stockDto, "Stok oluşturuldu");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Stok oluşturma hatası");
+                return ApiResponse<StockDto>.FailResult("Stok oluşturulamadı");
+            }
+        }
+
+        public async Task<ApiResponse<StockDto>> UpdateStockAsync(int stockId, CreateStockRequest request, int userId)
+        {
+            try
+            {
+                var stock = await _context.Stocks
+                    .FirstOrDefaultAsync(s => s.Id == stockId && s.UserId == userId);
+
+                if (stock == null)
+                {
+                    return ApiResponse<StockDto>.FailResult("Stok bulunamadı veya erişim yetkiniz yok");
+                }
+
+                stock.ProductName = request.ProductName;
+                stock.ProductCode = request.ProductCode;
+                stock.Category = request.Category;
+                stock.Quantity = request.Quantity;
+                stock.UnitPrice = request.UnitPrice;
+                stock.CostPrice = request.CostPrice;
+                stock.Unit = request.Unit;
+                stock.MinStockLevel = request.MinStockLevel;
+                stock.Description = request.Description;
+                stock.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                var stockDto = _mapper.Map<StockDto>(stock);
+                return ApiResponse<StockDto>.SuccessResult(stockDto, "Stok güncellendi");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Stok güncelleme hatası");
+                return ApiResponse<StockDto>.FailResult("Stok güncellenemedi");
+            }
+        }
+
+        public async Task<ApiResponse<bool>> DeleteStockAsync(int stockId, int userId)
+        {
+            try
+            {
+                var stock = await _context.Stocks
+                    .FirstOrDefaultAsync(s => s.Id == stockId && s.UserId == userId);
+
+                if (stock == null)
+                {
+                    return ApiResponse<bool>.FailResult("Stok bulunamadı veya erişim yetkiniz yok");
+                }
+
+                var hasRelatedSales = await _context.SaleItems
+                    .AnyAsync(si => si.StokId == stockId);
+
+                if (hasRelatedSales)
+                {
+                    return ApiResponse<bool>.FailResult("Bu stok satış işlemlerinde kullanılmış, silinemez");
+                }
+
+                _context.Stocks.Remove(stock);
+                await _context.SaveChangesAsync();
+
+                return ApiResponse<bool>.SuccessResult(true, "Stok silindi");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Stok silme hatası");
+                return ApiResponse<bool>.FailResult("Stok silinemedi");
+            }
+        }
+
+        public async Task<ApiResponse<List<StockDto>>> GetLowStockItemsAsync(int userId, int threshold)
+        {
+            try
+            {
+                var stocks = await _context.Stocks
+                    .Where(s => s.UserId == userId &&
+                               s.MinStockLevel.HasValue &&
+                               s.Quantity <= s.MinStockLevel.Value)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                var stockDtos = _mapper.Map<List<StockDto>>(stocks);
+                return ApiResponse<List<StockDto>>.SuccessResult(stockDtos, $"{stocks.Count} düşük stoklu ürün bulundu");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Düşük stok listesi alma hatası");
+                return ApiResponse<List<StockDto>>.FailResult("Düşük stok listesi alınamadı");
+            }
+        }
     }
 }

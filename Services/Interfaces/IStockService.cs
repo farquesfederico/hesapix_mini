@@ -1,17 +1,16 @@
-﻿using Hesapix.Models.DTOs.Stock;
+﻿using Hesapix.Controllers;
+using Hesapix.Models.Common;
+using Hesapix.Models.DTOs.Stock;
 
 namespace Hesapix.Services.Interfaces
 {
     public interface IStockService
     {
-        Task<List<StockDto>> GetAllStocks(int userId);
-        Task<StockDto> GetStockById(int id, int userId);
-        Task<StockDto> GetStockByCode(string productCode, int userId);
-        Task<StockDto> CreateStock(StockDto dto, int userId);
-        Task<StockDto> UpdateStock(int id, StockDto dto, int userId);
-        Task<bool> DeleteStock(int id, int userId);
-        Task<bool> UpdateStockQuantity(int stockId, decimal quantity, int userId);
-        Task<List<StockDto>> GetLowStocks(int userId);
-        Task<List<StockDto>> SearchStocks(string searchTerm, int userId);
+        Task<ApiResponse<List<StockDto>>> GetStocksByUserIdAsync(int userId, string? search, int page, int pageSize);
+        Task<ApiResponse<StockDto>> GetStockByIdAsync(int stockId, int userId);
+        Task<ApiResponse<StockDto>> CreateStockAsync(CreateStockRequest request, int userId);
+        Task<ApiResponse<StockDto>> UpdateStockAsync(int stockId, CreateStockRequest request, int userId);
+        Task<ApiResponse<bool>> DeleteStockAsync(int stockId, int userId);
+        Task<ApiResponse<List<StockDto>>> GetLowStockItemsAsync(int userId, int threshold);
     }
 }

@@ -1,4 +1,5 @@
 ﻿using Hesapix.Models.Entities;
+using Hesapix.Models.Enums;
 
 namespace Hesapix.Models.DTOs.Sale
 {

@@ -4,11 +4,11 @@ namespace Hesapix.Models.DTOs.Auth
 {
     public class LoginRequest
     {
-        [Required(ErrorMessage = "E-posta adresi zorunludur")]
-        [EmailAddress(ErrorMessage = "Geçerli bir e-posta adresi giriniz")]
-        public string Email { get; set; }
+        [Required(ErrorMessage = "Email zorunludur")]
+        [EmailAddress(ErrorMessage = "Geçerli bir email adresi giriniz")]
+        public string Email { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "Şifre zorunludur")]
-        public string Password { get; set; }
+        public string Password { get; set; } = string.Empty;
     }
 }

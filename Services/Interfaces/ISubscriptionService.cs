@@ -1,18 +1,20 @@
-﻿using Hesapix.Models.DTOs.Subscription;
+﻿
+using Hesapix.Controllers;
+using Hesapix.Models.Common;
+using Hesapix.Models.DTOs.Subs;
+using Hesapix.Models.DTOs.Subscription;
 
 namespace Hesapix.Services.Interfaces
 {
     public interface ISubscriptionService
     {
-        // Admin işlemleri
-        Task<SubscriptionDto> CreateSubscription(CreateSubscriptionRequest request, int adminId);
-        Task<SubscriptionDto> GetSubscriptionById(int id, int adminId);
-        Task<List<SubscriptionDto>> GetSubscriptions(int adminId); // Admin tüm abonelikleri görebilir
-        Task<bool> ActivateSubscription(int id, int adminId);      // Admin aktivasyon
-        Task<bool> DeactivateSubscription(int id, int adminId);    // Admin iptal
-        Task<List<SubscriptionDto>> GetAllSubscriptions();         // Admin tüm abonelikleri listele
-
-        // Kullanıcı işlemleri
-        Task<bool> CheckSubscription(int userId);                 // Kullanıcı abonelik kontrolü
+        Task<ApiResponse<SubscriptionDTO>> CreateSubscriptionAsync(CreateSubscriptionRequest request);
+        Task<ApiResponse<SubscriptionDTO>> UpdateSubscriptionAsync(int subscriptionId, UpdateSubscriptionRequest request);
+        Task<ApiResponse<bool>> DeleteSubscriptionAsync(int subscriptionId);
+        Task<ApiResponse<List<SubscriptionDTO>>> GetAllSubscriptionsAsync(int page, int pageSize, string? status);
+        Task<ApiResponse<SubscriptionDTO>> GetSubscriptionByIdAsync(int subscriptionId);
+        Task<ApiResponse<SubscriptionDTO>> GetUserSubscriptionAsync(int userId);
+        Task<ApiResponse<AdminStatisticsDto>> GetAdminStatisticsAsync();
+        Task<ApiResponse<bool>> CheckAndUpdateExpiredSubscriptionsAsync();
     }
 }

@@ -1,35 +1,55 @@
-﻿namespace Hesapix.Models.Entities
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Hesapix.Models.Entities
 {
     public class Sale
     {
+        [Key]
         public int Id { get; set; }
+
+        [Required]
         public int UserId { get; set; }
-        public string SaleNumber { get; set; } // Otomatik oluşturulan satış numarası
-        public DateTime SaleDate { get; set; }
-        public string CustomerName { get; set; }
+
+        [Required]
+        [MaxLength(100)]
+        public string CustomerName { get; set; } = string.Empty;
+
+        [MaxLength(20)]
         public string? CustomerPhone { get; set; }
+
+        [MaxLength(100)]
+        [EmailAddress]
         public string? CustomerEmail { get; set; }
-        public string? CustomerAddress { get; set; }
-        public string? CustomerTaxNumber { get; set; }
-        public decimal SubTotal { get; set; }
-        public decimal TaxAmount { get; set; }
-        public decimal DiscountAmount { get; set; }
+
+        [Required]
+        public DateTime SaleDate { get; set; } = DateTime.UtcNow;
+
+        [Required]
+        [Column(TypeName = "decimal(18,2)")]
         public decimal TotalAmount { get; set; }
-        public PaymentStatus PaymentStatus { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal PaidAmount { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal RemainingAmount { get; set; }
+
+        [MaxLength(50)]
+        public string? PaymentMethod { get; set; }
+
+        [MaxLength(500)]
         public string? Notes { get; set; }
-        public DateTime CreatedDate { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public DateTime? UpdatedAt { get; set; }
 
         // Navigation Properties
-        public virtual User User { get; set; }
-        public virtual ICollection<SaleItem> SaleItems { get; set; }
-        public virtual ICollection<Payment> Payments { get; set; }
-    }
+        [ForeignKey(nameof(UserId))]
+        public virtual User User { get; set; } = null!;
 
-    public enum PaymentStatus
-    {
-        Pending = 1,      // Beklemede
-        PartialPaid = 2,  // Kısmi Ödeme
-        Paid = 3,         // Ödendi
-        Cancelled = 4     // İptal
+        public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
+        public virtual ICollection<Payment> Payments { get; set; } = new List<Payment>();
     }
 }

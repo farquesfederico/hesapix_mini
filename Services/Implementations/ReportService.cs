@@ -1,9 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using Hesapix.Data;
 using Hesapix.Models.DTOs.Report;
 using Hesapix.Models.Entities;
 using Hesapix.Services.Interfaces;
 using System.Globalization;
+using Hesapix.Data;
+using Hesapix.Data;
 
 namespace Hesapix.Services.Implementations
 {
@@ -45,7 +46,7 @@ namespace Hesapix.Services.Implementations
                 .ToListAsync();
 
             // Düşük stoklar
-            var lowStocks = await _context.Stocks
+            var lowStoks = await _context.Stocks
                 .Where(s => s.UserId == userId &&
                            s.IsActive &&
                            s.MinimumStock.HasValue &&
@@ -98,7 +99,7 @@ namespace Hesapix.Services.Implementations
                                  pendingSales.Sum(s => s.Payments?.Where(p => p.PaymentType == PaymentType.Income).Sum(p => p.Amount) ?? 0),
                 TotalSalesCount = sales.Count,
                 TotalPaymentsCount = payments.Count,
-                LowStockCount = lowStocks,
+                LowStockCount = lowStoks,
                 TopSellingProducts = topProducts,
                 MonthlySales = monthlySalesData
             };

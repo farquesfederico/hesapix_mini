@@ -1,524 +1,164 @@
-﻿/* using Microsoft.EntityFrameworkCore;
+﻿using AutoMapper;
 using Hesapix.Data;
+using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Sale;
 using Hesapix.Models.Entities;
 using Hesapix.Services.Interfaces;
-
-namespace Hesapix.Services.Implementations
-{
-    public class SaleService : ISaleService
-    {
-        private readonly ApplicationDbContext _context;
-
-        public SaleService(ApplicationDbContext context)
-        {
-            _context = context;
-        }
-
-        public async Task<SaleDto> CreateSale(CreateSaleRequest request, int userId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
-            {
-                // Satış numarası oluştur
-                var saleNumber = await GenerateSaleNumber(userId);
-
-                decimal subTotal = 0;
-                decimal taxAmount = 0;
-
-                var saleItems = new List<SaleItem>();
-
-                // Her ürün için kontrol ve hesaplama
-                foreach (var item in request.Items)
-                {
-                    var stock = await _context.Stocks
-                        .FirstOrDefaultAsync(s => s.Id == item.StockId && s.UserId == userId && s.IsActive);
-
-                    if (stock == null)
-                    {
-                        throw new Exception($"Stok bulunamadı: {item.StockId}");
-                    }
-
-                    if (stock.Quantity < item.Quantity)
-                    {
-                        throw new Exception($"{stock.ProductName} için yetersiz stok. Mevcut: {stock.Quantity}");
-                    }
-
-                    // Fiyat hesaplamaları
-                    var itemSubTotal = item.Quantity * item.UnitPrice;
-                    var discountAmount = itemSubTotal * (item.DiscountRate / 100);
-                    var afterDiscount = itemSubTotal - discountAmount;
-                    var itemTax = afterDiscount * (item.TaxRate / 100);
-                    var itemTotal = afterDiscount + itemTax;
-
-                    subTotal += afterDiscount;
-                    taxAmount += itemTax;
-
-                    saleItems.Add(new SaleItem
-                    {
-                        StockId = item.StockId,
-                        ProductName = stock.ProductName,
-                        Quantity = item.Quantity,
-                        UnitPrice = item.UnitPrice,
-                        TaxRate = item.TaxRate,
-                        DiscountRate = item.DiscountRate,
-                        TotalPrice = itemTotal
-                    });
-
-                    // Stok düş
-                    stock.Quantity -= item.Quantity;
-                    stock.UpdatedDate = DateTime.UtcNow;
-                }
-
-                var totalAmount = subTotal + taxAmount - request.DiscountAmount;
-
-                // Satış oluştur
-                var sale = new Sale
-                {
-                    UserId = userId,
-                    SaleNumber = saleNumber,
-                    SaleDate = request.SaleDate,
-                    CustomerName = request.CustomerName,
-                    CustomerPhone = request.CustomerPhone,
-                    CustomerEmail = request.CustomerEmail,
-                    CustomerAddress = request.CustomerAddress,
-                    CustomerTaxNumber = request.CustomerTaxNumber,
-                    SubTotal = subTotal,
-                    TaxAmount = taxAmount,
-                    DiscountAmount = request.DiscountAmount,
-                    TotalAmount = totalAmount,
-                    PaymentStatus = PaymentStatus.Pending,
-                    Notes = request.Notes,
-                    CreatedDate = DateTime.UtcNow,
-                    SaleItems = saleItems
-                };
-
-                _context.Sales.Add(sale);
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                return await GetSaleById(sale.Id, userId);
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-
-        public async Task<List<SaleDto>> GetSales(int userId, DateTime? startDate = null, DateTime? endDate = null)
-        {
-            var query = _context.Sales
-                .Include(s => s.SaleItems)
-                .Where(s => s.UserId == userId);
-
-            if (startDate.HasValue)
-            {
-                query = query.Where(s => s.SaleDate >= startDate.Value);
-            }
-
-            if (endDate.HasValue)
-            {
-                query = query.Where(s => s.SaleDate <= endDate.Value);
-            }
-
-            var sales = await query
-                .OrderByDescending(s => s.SaleDate)
-                .ToListAsync();
-
-            return sales.Select(MapToDto).ToList();
-        }
-
-        public async Task<SaleDto> GetSaleById(int id, int userId)
-        {
-            var sale = await _context.Sales
-                .Include(s => s.SaleItems)
-                .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
-
-            if (sale == null)
-            {
-                throw new Exception("Satış bulunamadı");
-            }
-
-            return MapToDto(sale);
-        }
-
-        public async Task<SaleDto> GetSaleByNumber(string saleNumber, int userId)
-        {
-            var sale = await _context.Sales
-                .Include(s => s.SaleItems)
-                .FirstOrDefaultAsync(s => s.SaleNumber == saleNumber && s.UserId == userId);
-
-            if (sale == null)
-            {
-                throw new Exception("Satış bulunamadı");
-            }
-
-            return MapToDto(sale);
-        }
-
-        public async Task<bool> CancelSale(int id, int userId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
-            {
-                var sale = await _context.Sales
-                    .Include(s => s.SaleItems)
-                    .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
-
-                if (sale == null)
-                {
-                    return false;
-                }
-
-                if (sale.PaymentStatus == PaymentStatus.Paid)
-                {
-                    throw new Exception("Ödemesi tamamlanmış satışlar iptal edilemez");
-                }
-
-                // Stokları geri ekle
-                foreach (var item in sale.SaleItems)
-                {
-                    var stock = await _context.Stocks.FindAsync(item.StockId);
-                    if (stock != null)
-                    {
-                        stock.Quantity += item.Quantity;
-                        stock.UpdatedDate = DateTime.UtcNow;
-                    }
-                }
-
-                sale.PaymentStatus = PaymentStatus.Cancelled;
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-
-        public async Task<List<SaleDto>> GetPendingPaymentSales(int userId)
-        {
-            var sales = await _context.Sales
-                .Include(s => s.SaleItems)
-                .Where(s => s.UserId == userId &&
-                           (s.PaymentStatus == PaymentStatus.Pending ||
-                            s.PaymentStatus == PaymentStatus.PartialPaid))
-                .OrderByDescending(s => s.SaleDate)
-                .ToListAsync();
-
-            return sales.Select(MapToDto).ToList();
-        }
-
-        public async Task<bool> UpdateSalePaymentStatus(int saleId, int userId)
-        {
-            var sale = await _context.Sales
-                .Include(s => s.Payments)
-                .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId);
-
-            if (sale == null)
-            {
-                return false;
-            }
-
-            var totalPaid = sale.Payments
-                .Where(p => p.PaymentType == PaymentType.Income)
-                .Sum(p => p.Amount);
-
-            if (totalPaid >= sale.TotalAmount)
-            {
-                sale.PaymentStatus = PaymentStatus.Paid;
-            }
-            else if (totalPaid > 0)
-            {
-                sale.PaymentStatus = PaymentStatus.PartialPaid;
-            }
-            else
-            {
-                sale.PaymentStatus = PaymentStatus.Pending;
-            }
-
-            await _context.SaveChangesAsync();
-            return true;
-        }
-
-        #region Private Methods
-
-        private async Task<string> GenerateSaleNumber(int userId)
-        {
-            var today = DateTime.Today;
-            var prefix = $"S{today:yyyyMMdd}";
-
-            var lastSale = await _context.Sales
-                .Where(s => s.UserId == userId && s.SaleNumber.StartsWith(prefix))
-                .OrderByDescending(s => s.SaleNumber)
-                .FirstOrDefaultAsync();
-
-            if (lastSale == null)
-            {
-                return $"{prefix}0001";
-            }
-
-            var lastNumber = int.Parse(lastSale.SaleNumber.Substring(prefix.Length));
-            return $"{prefix}{(lastNumber + 1):D4}";
-        }
-
-        private SaleDto MapToDto(Sale sale)
-        {
-            return new SaleDto
-            {
-                Id = sale.Id,
-                SaleNumber = sale.SaleNumber,
-                SaleDate = sale.SaleDate,
-                CustomerName = sale.CustomerName,
-                CustomerPhone = sale.CustomerPhone,
-                CustomerEmail = sale.CustomerEmail,
-                CustomerAddress = sale.CustomerAddress,
-                CustomerTaxNumber = sale.CustomerTaxNumber,
-                SubTotal = sale.SubTotal,
-                TaxAmount = sale.TaxAmount,
-                DiscountAmount = sale.DiscountAmount,
-                TotalAmount = sale.TotalAmount,
-                PaymentStatus = sale.PaymentStatus,
-                Notes = sale.Notes,
-                CreatedDate = sale.CreatedDate,
-                Items = sale.SaleItems?.Select(si => new SaleItemDto
-                {
-                    Id = si.Id,
-                    StockId = si.StockId,
-                    ProductName = si.ProductName,
-                    Quantity = si.Quantity,
-                    UnitPrice = si.UnitPrice,
-                    TaxRate = si.TaxRate,
-                    DiscountRate = si.DiscountRate,
-                    TotalPrice = si.TotalPrice
-                }).ToList() ?? new List<SaleItemDto>()
-            };
-        }
-
-        #endregion
-    }
-}
-*/ //Burada Eski Kod Yapısı Var!!
 using Microsoft.EntityFrameworkCore;
-using Hesapix.Data;
-using Hesapix.Models.DTOs.Sale;
-using Hesapix.Models.Entities;
-using Hesapix.Services.Interfaces;
 
 namespace Hesapix.Services.Implementations
 {
-    // Generic pagination class
-    public class PagedResult<T>
-    {
-        public List<T> Items { get; set; } = new List<T>();
-        public int TotalCount { get; set; }
-        public int Page { get; set; }
-        public int PageSize { get; set; }
-        public int TotalPages => (int)Math.Ceiling((double)TotalCount / PageSize);
-    }
-
     public class SaleService : ISaleService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMapper _mapper;
+        private readonly ILogger<SaleService> _logger;
 
-        public SaleService(ApplicationDbContext context)
+        public SaleService(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ILogger<SaleService> logger)
         {
             _context = context;
+            _mapper = mapper;
+            _logger = logger;
         }
 
-        #region CreateSale
+        public async Task<ApiResponse<List<SaleDto>>> GetSalesByUserIdAsync(
+            int userId,
+            DateTime? startDate,
+            DateTime? endDate,
+            int page,
+            int pageSize)
+        {
+            var query = _context.Sales
+                .Include(s => s.SaleItems)
+                    .ThenInclude(si => si.Stock)
+                .Where(s => s.UserId == userId); // Güvenlik: Sadece kendi verilerine erişim
 
-        public async Task<SaleDto> CreateSale(CreateSaleRequest request, int userId)
+            if (startDate.HasValue)
+            {
+                query = query.Where(s => s.SaleDate >= startDate.Value);
+            }
+
+            if (endDate.HasValue)
+            {
+                query = query.Where(s => s.SaleDate <= endDate.Value);
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var sales = await query
+                .OrderByDescending(s => s.SaleDate)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .AsNoTracking()
+                .ToListAsync();
+
+            var saleDtos = _mapper.Map<List<SaleDto>>(sales);
+
+            return ApiResponse<List<SaleDto>>.SuccessResult(saleDtos, $"Toplam {totalCount} satış bulundu");
+        }
+
+        public async Task<ApiResponse<SaleDto>> GetSaleByIdAsync(int saleId, int userId)
+        {
+            var sale = await _context.Sales
+                .Include(s => s.SaleItems)
+                    .ThenInclude(si => si.Stock)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId); // Güvenlik kontrolü
+
+            if (sale == null)
+            {
+                return ApiResponse<SaleDto>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
+            }
+
+            var saleDto = _mapper.Map<SaleDto>(sale);
+            return ApiResponse<SaleDto>.SuccessResult(saleDto);
+        }
+
+        public async Task<ApiResponse<SaleDto>> CreateSaleAsync(CreateSaleRequest request, int userId)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                var saleNumber = await GenerateSaleNumber(userId);
-
-                decimal subTotal = 0;
-                decimal taxAmount = 0;
-
-                var saleItems = new List<SaleItem>();
-
+                // Stok kontrolü
                 foreach (var item in request.Items)
                 {
                     var stock = await _context.Stocks
-                        .FirstOrDefaultAsync(s => s.Id == item.StockId && s.UserId == userId && s.IsActive);
+                        .FirstOrDefaultAsync(s => s.Id == item.StokId && s.UserId == userId); // Güvenlik kontrolü
 
                     if (stock == null)
-                        throw new Exception($"Stok bulunamadı: {item.StockId}");
+                    {
+                        await transaction.RollbackAsync();
+                        return ApiResponse<SaleDto>.FailResult($"Stok bulunamadı: {item.StokId}");
+                    }
 
                     if (stock.Quantity < item.Quantity)
-                        throw new Exception($"{stock.ProductName} için yetersiz stok. Mevcut: {stock.Quantity}");
-
-                    var itemSubTotal = item.Quantity * item.UnitPrice;
-                    var discountAmount = itemSubTotal * (item.DiscountRate / 100);
-                    var afterDiscount = itemSubTotal - discountAmount;
-                    var itemTax = afterDiscount * (item.TaxRate / 100);
-                    var itemTotal = afterDiscount + itemTax;
-
-                    subTotal += afterDiscount;
-                    taxAmount += itemTax;
-
-                    saleItems.Add(new SaleItem
                     {
-                        StockId = item.StockId,
-                        ProductName = stock.ProductName,
-                        Quantity = item.Quantity,
-                        UnitPrice = item.UnitPrice,
-                        TaxRate = item.TaxRate,
-                        DiscountRate = item.DiscountRate,
-                        TotalPrice = itemTotal
-                    });
-
-                    stock.Quantity -= item.Quantity;
-                    stock.UpdatedDate = DateTime.UtcNow;
+                        await transaction.RollbackAsync();
+                        return ApiResponse<SaleDto>.FailResult($"Yetersiz stok: {stock.ProductName} (Mevcut: {stock.Quantity}, İstenen: {item.Quantity})");
+                    }
                 }
-
-                var totalAmount = subTotal + taxAmount - request.DiscountAmount;
 
                 var sale = new Sale
                 {
                     UserId = userId,
-                    SaleNumber = saleNumber,
-                    SaleDate = request.SaleDate,
                     CustomerName = request.CustomerName,
                     CustomerPhone = request.CustomerPhone,
                     CustomerEmail = request.CustomerEmail,
-                    CustomerAddress = request.CustomerAddress,
-                    CustomerTaxNumber = request.CustomerTaxNumber,
-                    SubTotal = subTotal,
-                    TaxAmount = taxAmount,
-                    DiscountAmount = request.DiscountAmount,
-                    TotalAmount = totalAmount,
-                    PaymentStatus = PaymentStatus.Pending,
+                    SaleDate = request.SaleDate ?? DateTime.UtcNow,
+                    TotalAmount = 0,
+                    PaidAmount = request.PaidAmount,
+                    PaymentMethod = request.PaymentMethod,
                     Notes = request.Notes,
-                    CreatedDate = DateTime.UtcNow,
-                    SaleItems = saleItems
+                    CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Sales.Add(sale);
                 await _context.SaveChangesAsync();
+
+                decimal totalAmount = 0;
+
+                foreach (var item in request.Items)
+                {
+                    var stock = await _context.Stocks.FindAsync(item.StokId);
+
+                    var saleItem = new SaleItem
+                    {
+                        SaleId = sale.Id,
+                        StokId = item.StokId,
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        TotalPrice = item.Quantity * item.UnitPrice
+                    };
+
+                    _context.SaleItems.Add(saleItem);
+                    totalAmount += saleItem.TotalPrice;
+
+                    // Stok güncelleme
+                    stock!.Quantity -= item.Quantity;
+                }
+
+                sale.TotalAmount = totalAmount;
+                sale.RemainingAmount = totalAmount - request.PaidAmount;
+
+                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return await GetSaleById(sale.Id, userId);
+                var saleDto = await GetSaleByIdAsync(sale.Id, userId);
+                return saleDto;
             }
-            catch
+            catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                throw;
+                _logger.LogError(ex, "Satış oluşturulurken hata");
+                return ApiResponse<SaleDto>.FailResult("Satış oluşturulamadı");
             }
         }
 
-        #endregion
-
-        #region GetSales (paged)
-
-        // Pagination with total count
-        public async Task<PagedResult<SaleDto>> GetSales(int userId, int page = 1, int pageSize = 20, DateTime? startDate = null, DateTime? endDate = null)
-        {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-
-            var query = _context.Sales
-                .Include(s => s.SaleItems)
-                .Where(s => s.UserId == userId);
-
-            if (startDate.HasValue)
-                query = query.Where(s => s.SaleDate >= startDate.Value);
-
-            if (endDate.HasValue)
-                query = query.Where(s => s.SaleDate <= endDate.Value);
-
-            var totalCount = await query.CountAsync();
-
-            var sales = await query
-                .OrderByDescending(s => s.SaleDate)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            return new PagedResult<SaleDto>
-            {
-                Items = sales.Select(MapToDto).ToList(),
-                TotalCount = totalCount,
-                Page = page,
-                PageSize = pageSize
-            };
-        }
-
-        #endregion
-
-        #region GetPendingPaymentSales (paged)
-
-        public async Task<PagedResult<SaleDto>> GetPendingPaymentSales(int userId, int page = 1, int pageSize = 20)
-        {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-
-            var query = _context.Sales
-                .Include(s => s.SaleItems)
-                .Where(s => s.UserId == userId &&
-                            (s.PaymentStatus == PaymentStatus.Pending ||
-                             s.PaymentStatus == PaymentStatus.PartialPaid));
-
-            var totalCount = await query.CountAsync();
-
-            var sales = await query
-                .OrderByDescending(s => s.SaleDate)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            return new PagedResult<SaleDto>
-            {
-                Items = sales.Select(MapToDto).ToList(),
-                TotalCount = totalCount,
-                Page = page,
-                PageSize = pageSize
-            };
-        }
-
-        #endregion
-
-        #region GetSaleById / GetSaleByNumber
-
-        public async Task<SaleDto> GetSaleById(int id, int userId)
-        {
-            var sale = await _context.Sales
-                .Include(s => s.SaleItems)
-                .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
-
-            if (sale == null)
-                throw new Exception("Satış bulunamadı");
-
-            return MapToDto(sale);
-        }
-
-        public async Task<SaleDto> GetSaleByNumber(string saleNumber, int userId)
-        {
-            var sale = await _context.Sales
-                .Include(s => s.SaleItems)
-                .FirstOrDefaultAsync(s => s.SaleNumber == saleNumber && s.UserId == userId);
-
-            if (sale == null)
-                throw new Exception("Satış bulunamadı");
-
-            return MapToDto(sale);
-        }
-
-        #endregion
-
-        #region CancelSale
-
-        public async Task<bool> CancelSale(int id, int userId)
+        public async Task<ApiResponse<SaleDto>> UpdateSaleAsync(int saleId, CreateSaleRequest request, int userId)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -526,131 +166,133 @@ namespace Hesapix.Services.Implementations
             {
                 var sale = await _context.Sales
                     .Include(s => s.SaleItems)
-                    .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
+                    .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId); // Güvenlik kontrolü
 
                 if (sale == null)
-                    return false;
-
-                if (sale.PaymentStatus == PaymentStatus.Paid)
-                    throw new Exception("Ödemesi tamamlanmış satışlar iptal edilemez");
-
-                foreach (var item in sale.SaleItems)
                 {
-                    var stock = await _context.Stocks.FindAsync(item.StockId);
+                    await transaction.RollbackAsync();
+                    return ApiResponse<SaleDto>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
+                }
+
+                // Eski stokları geri yükle
+                foreach (var oldItem in sale.SaleItems)
+                {
+                    var stock = await _context.Stocks.FindAsync(oldItem.StokId);
                     if (stock != null)
                     {
-                        stock.Quantity += item.Quantity;
-                        stock.UpdatedDate = DateTime.UtcNow;
+                        stock.Quantity += (int)oldItem.Quantity;
                     }
                 }
 
-                sale.PaymentStatus = PaymentStatus.Cancelled;
+                // Eski satış itemlerini sil
+                _context.SaleItems.RemoveRange(sale.SaleItems);
+
+                // Yeni stok kontrolü
+                foreach (var item in request.Items)
+                {
+                    var stock = await _context.Stocks
+                        .FirstOrDefaultAsync(s => s.Id == item.StokId && s.UserId == userId); // Güvenlik kontrolü
+
+                    if (stock == null)
+                    {
+                        await transaction.RollbackAsync();
+                        return ApiResponse<SaleDto>.FailResult($"Stok bulunamadı: {item.StokId}");
+                    }
+
+                    if (stock.Quantity < item.Quantity)
+                    {
+                        await transaction.RollbackAsync();
+                        return ApiResponse<SaleDto>.FailResult($"Yetersiz stok: {stock.ProductName}");
+                    }
+                }
+
+                // Satış bilgilerini güncelle
+                sale.CustomerName = request.CustomerName;
+                sale.CustomerPhone = request.CustomerPhone;
+                sale.CustomerEmail = request.CustomerEmail;
+                sale.SaleDate = request.SaleDate ?? sale.SaleDate;
+                sale.PaidAmount = request.PaidAmount;
+                sale.PaymentMethod = request.PaymentMethod;
+                sale.Notes = request.Notes;
+                sale.UpdatedAt = DateTime.UtcNow;
+
+                decimal totalAmount = 0;
+
+                // Yeni satış itemlerini ekle
+                foreach (var item in request.Items)
+                {
+                    var stock = await _context.Stocks.FindAsync(item.StokId);
+
+                    var saleItem = new SaleItem
+                    {
+                        SaleId = sale.Id,
+                        StokId = item.StokId,
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        TotalPrice = item.Quantity * item.UnitPrice
+                    };
+
+                    _context.SaleItems.Add(saleItem);
+                    totalAmount += saleItem.TotalPrice;
+
+                    stock!.Quantity -= item.Quantity;
+                }
+
+                sale.TotalAmount = totalAmount;
+                sale.RemainingAmount = totalAmount - request.PaidAmount;
+
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return true;
+                var saleDto = await GetSaleByIdAsync(sale.Id, userId);
+                return saleDto;
             }
-            catch
+            catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                throw;
+                _logger.LogError(ex, "Satış güncellenirken hata: SaleId={SaleId}", saleId);
+                return ApiResponse<SaleDto>.FailResult("Satış güncellenemedi");
             }
         }
 
-        #endregion
-
-        #region UpdateSalePaymentStatus
-
-        public async Task<bool> UpdateSalePaymentStatus(int saleId, int userId)
+        public async Task<ApiResponse<bool>> DeleteSaleAsync(int saleId, int userId)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
                 var sale = await _context.Sales
-                    .Include(s => s.Payments)
-                    .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId);
+                    .Include(s => s.SaleItems)
+                    .FirstOrDefaultAsync(s => s.Id == saleId && s.UserId == userId); // Güvenlik kontrolü
 
                 if (sale == null)
-                    return false;
+                {
+                    await transaction.RollbackAsync();
+                    return ApiResponse<bool>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
+                }
 
-                var totalPaid = sale.Payments
-                    .Where(p => p.PaymentType == PaymentType.Income)
-                    .Sum(p => p.Amount);
+                // Stokları geri yükle
+                foreach (var item in sale.SaleItems)
+                {
+                    var stock = await _context.Stocks.FindAsync(item.StokId);
+                    if (stock != null)
+                    {
+                        stock.Quantity += item.Quantity;
+                    }
+                }
 
-                if (totalPaid >= sale.TotalAmount)
-                    sale.PaymentStatus = PaymentStatus.Paid;
-                else if (totalPaid > 0)
-                    sale.PaymentStatus = PaymentStatus.PartialPaid;
-                else
-                    sale.PaymentStatus = PaymentStatus.Pending;
-
+                _context.Sales.Remove(sale);
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return true;
+                return ApiResponse<bool>.SuccessResult(true, "Satış silindi");
             }
-            catch
+            catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                throw;
+                _logger.LogError(ex, "Satış silinirken hata: SaleId={SaleId}", saleId);
+                return ApiResponse<bool>.FailResult("Satış silinemedi");
             }
         }
-
-        #endregion
-
-        #region Private Methods
-
-        private async Task<string> GenerateSaleNumber(int userId)
-        {
-            var today = DateTime.Today;
-            var prefix = $"S{today:yyyyMMdd}";
-
-            var lastSale = await _context.Sales
-                .Where(s => s.UserId == userId && s.SaleNumber.StartsWith(prefix))
-                .OrderByDescending(s => s.SaleNumber)
-                .FirstOrDefaultAsync();
-
-            if (lastSale == null)
-                return $"{prefix}0001";
-
-            var lastNumber = int.Parse(lastSale.SaleNumber.Substring(prefix.Length));
-            return $"{prefix}{(lastNumber + 1):D4}";
-        }
-
-        private SaleDto MapToDto(Sale sale)
-        {
-            return new SaleDto
-            {
-                Id = sale.Id,
-                SaleNumber = sale.SaleNumber,
-                SaleDate = sale.SaleDate,
-                CustomerName = sale.CustomerName,
-                CustomerPhone = sale.CustomerPhone,
-                CustomerEmail = sale.CustomerEmail,
-                CustomerAddress = sale.CustomerAddress,
-                CustomerTaxNumber = sale.CustomerTaxNumber,
-                SubTotal = sale.SubTotal,
-                TaxAmount = sale.TaxAmount,
-                DiscountAmount = sale.DiscountAmount,
-                TotalAmount = sale.TotalAmount,
-                PaymentStatus = sale.PaymentStatus,
-                Notes = sale.Notes,
-                CreatedDate = sale.CreatedDate,
-                Items = sale.SaleItems?.Select(si => new SaleItemDto
-                {
-                    Id = si.Id,
-                    StockId = si.StockId,
-                    ProductName = si.ProductName,
-                    Quantity = si.Quantity,
-                    UnitPrice = si.UnitPrice,
-                    TaxRate = si.TaxRate,
-                    DiscountRate = si.DiscountRate,
-                    TotalPrice = si.TotalPrice
-                }).ToList() ?? new List<SaleItemDto>()
-            };
-        }
-
-        #endregion
     }
 }

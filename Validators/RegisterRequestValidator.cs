@@ -78,7 +78,7 @@ namespace Hesapix.Validators
 
             RuleForEach(x => x.Items).ChildRules(item =>
             {
-                item.RuleFor(x => x.StockId)
+                item.RuleFor(x => x.StokId)
                     .GreaterThan(0).WithMessage("Geçerli bir ürün seçiniz");
 
                 item.RuleFor(x => x.Quantity)

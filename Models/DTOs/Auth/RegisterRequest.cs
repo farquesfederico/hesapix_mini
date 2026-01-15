@@ -4,26 +4,21 @@ namespace Hesapix.Models.DTOs.Auth
 {
     public class RegisterRequest
     {
-        [Required(ErrorMessage = "E-posta adresi zorunludur")]
-        [EmailAddress(ErrorMessage = "Geçerli bir e-posta adresi giriniz")]
-        public string Email { get; set; }
-
-        [Required(ErrorMessage = "Şifre zorunludur")]
-        [MinLength(6, ErrorMessage = "Şifre en az 6 karakter olmalıdır")]
-        public string Password { get; set; }
-
         [Required(ErrorMessage = "Ad Soyad zorunludur")]
         [MaxLength(100)]
-        public string FullName { get; set; }
+        public string FullName { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "Telefon numarası zorunludur")]
-        [Phone(ErrorMessage = "Geçerli bir telefon numarası giriniz")]
-        public string PhoneNumber { get; set; }
+        [Required(ErrorMessage = "Email zorunludur")]
+        [EmailAddress(ErrorMessage = "Geçerli bir email adresi giriniz")]
+        [MaxLength(100)]
+        public string Email { get; set; } = string.Empty;
 
-        [MaxLength(200)]
-        public string? CompanyName { get; set; }
+        [Required(ErrorMessage = "Şifre zorunludur")]
+        [MinLength(8, ErrorMessage = "Şifre en az 8 karakter olmalıdır")]
+        public string Password { get; set; } = string.Empty;
 
-        [MaxLength(50)]
-        public string? TaxNumber { get; set; }
+        [Required(ErrorMessage = "Şifre tekrarı zorunludur")]
+        [Compare(nameof(Password), ErrorMessage = "Şifreler eşleşmiyor")]
+        public string ConfirmPassword { get; set; } = string.Empty;
     }
 }

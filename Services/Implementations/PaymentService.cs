@@ -1,413 +1,253 @@
-﻿/*
-using Microsoft.EntityFrameworkCore;
+﻿using AutoMapper;
 using Hesapix.Data;
+using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Payment;
 using Hesapix.Models.Entities;
 using Hesapix.Services.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace Hesapix.Services.Implementations
 {
     public class PaymentService : IPaymentService
     {
         private readonly ApplicationDbContext _context;
-        private readonly ISaleService _saleService;
+        private readonly IMapper _mapper;
+        private readonly ILogger<PaymentService> _logger;
 
-        public PaymentService(ApplicationDbContext context, ISaleService saleService)
+        public PaymentService(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ILogger<PaymentService> logger)
         {
             _context = context;
-            _saleService = saleService;
+            _mapper = mapper;
+            _logger = logger;
         }
 
-        public async Task<PaymentDto> CreatePayment(CreatePaymentRequest request, int userId)
+        public async Task<ApiResponse<List<PaymentDto>>> GetPaymentsByUserIdAsync(
+            int userId,
+            DateTime? startDate,
+            DateTime? endDate,
+            int page,
+            int pageSize)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
             try
             {
+                var query = _context.Payments
+                    .Include(p => p.Sale)
+                    .Where(p => p.UserId == userId);
+
+                if (startDate.HasValue)
+                {
+                    query = query.Where(p => p.PaymentDate >= startDate.Value);
+                }
+
+                if (endDate.HasValue)
+                {
+                    query = query.Where(p => p.PaymentDate <= endDate.Value);
+                }
+
+                var totalCount = await query.CountAsync();
+
+                var payments = await query
+                    .OrderByDescending(p => p.PaymentDate)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                var paymentDtos = _mapper.Map<List<PaymentDto>>(payments);
+
+                return ApiResponse<List<PaymentDto>>.SuccessResult(paymentDtos, $"Toplam {totalCount} ödeme bulundu");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ödemeler listeleme hatası");
+                return ApiResponse<List<PaymentDto>>.FailResult("Ödemeler listelenemedi");
+            }
+        }
+
+        public async Task<ApiResponse<PaymentDto>> GetPaymentByIdAsync(int paymentId, int userId)
+        {
+            try
+            {
+                var payment = await _context.Payments
+                    .Include(p => p.Sale)
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == paymentId && p.UserId == userId);
+
+                if (payment == null)
+                {
+                    return ApiResponse<PaymentDto>.FailResult("Ödeme bulunamadı veya erişim yetkiniz yok");
+                }
+
+                var paymentDto = _mapper.Map<PaymentDto>(payment);
+                return ApiResponse<PaymentDto>.SuccessResult(paymentDto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ödeme bilgisi alma hatası");
+                return ApiResponse<PaymentDto>.FailResult("Ödeme bilgisi alınamadı");
+            }
+        }
+
+        public async Task<ApiResponse<PaymentDto>> CreatePaymentAsync(CreatePaymentRequest request, int userId)
+        {
+            try
+            {
+                var sale = await _context.Sales
+                    .FirstOrDefaultAsync(s => s.Id == request.SaleId && s.UserId == userId);
+
+                if (sale == null)
+                {
+                    return ApiResponse<PaymentDto>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
+                }
+
+                if (request.Amount <= 0)
+                {
+                    return ApiResponse<PaymentDto>.FailResult("Ödeme tutarı sıfırdan büyük olmalıdır");
+                }
+
+                if (request.Amount > sale.RemainingAmount)
+                {
+                    return ApiResponse<PaymentDto>.FailResult($"Ödeme tutarı kalan borçtan ({sale.RemainingAmount:C}) fazla olamaz");
+                }
+
                 var payment = new Payment
                 {
                     UserId = userId,
                     SaleId = request.SaleId,
-                    PaymentDate = request.PaymentDate,
-                    CustomerName = request.CustomerName,
                     Amount = request.Amount,
-                    PaymentType = request.PaymentType,
                     PaymentMethod = request.PaymentMethod,
-                    CheckNumber = request.CheckNumber,
-                    CheckDate = request.CheckDate,
-                    BankName = request.BankName,
-                    ReferenceNumber = request.ReferenceNumber,
+                    PaymentDate = request.PaymentDate.HasValue ? request.PaymentDate.Value : DateTime.UtcNow,
                     Notes = request.Notes,
-                    CreatedDate = DateTime.UtcNow
-                };
-
-                _context.Payments.Add(payment);
-                await _context.SaveChangesAsync();
-
-                // Eğer ödeme bir satışa bağlıysa, satışın ödeme durumunu güncelle
-                if (request.SaleId.HasValue && request.PaymentType == PaymentType.Income)
-                {
-                    await _saleService.UpdateSalePaymentStatus(request.SaleId.Value, userId);
-                }
-
-                await transaction.CommitAsync();
-
-                return await GetPaymentById(payment.Id, userId);
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-
-        public async Task<List<PaymentDto>> GetPayments(int userId, DateTime? startDate = null, DateTime? endDate = null)
-        {
-            var query = _context.Payments
-                .Include(p => p.Sale)
-                .Where(p => p.UserId == userId);
-
-            if (startDate.HasValue)
-            {
-                query = query.Where(p => p.PaymentDate >= startDate.Value);
-            }
-
-            if (endDate.HasValue)
-            {
-                query = query.Where(p => p.PaymentDate <= endDate.Value);
-            }
-
-            var payments = await query
-                .OrderByDescending(p => p.PaymentDate)
-                .ToListAsync();
-
-            return payments.Select(MapToDto).ToList();
-        }
-
-        public async Task<PaymentDto> GetPaymentById(int id, int userId)
-        {
-            var payment = await _context.Payments
-                .Include(p => p.Sale)
-                .FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId);
-
-            if (payment == null)
-            {
-                throw new Exception("Ödeme kaydı bulunamadı");
-            }
-
-            return MapToDto(payment);
-        }
-
-        public async Task<List<PaymentDto>> GetPaymentsBySaleId(int saleId, int userId)
-        {
-            var payments = await _context.Payments
-                .Include(p => p.Sale)
-                .Where(p => p.SaleId == saleId && p.UserId == userId)
-                .OrderByDescending(p => p.PaymentDate)
-                .ToListAsync();
-
-            return payments.Select(MapToDto).ToList();
-        }
-
-        public async Task<List<PaymentDto>> GetPaymentsByType(PaymentType type, int userId)
-        {
-            var payments = await _context.Payments
-                .Include(p => p.Sale)
-                .Where(p => p.PaymentType == type && p.UserId == userId)
-                .OrderByDescending(p => p.PaymentDate)
-                .ToListAsync();
-
-            return payments.Select(MapToDto).ToList();
-        }
-
-        public async Task<bool> DeletePayment(int id, int userId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-
-            try
-            {
-                var payment = await _context.Payments
-                    .FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId);
-
-                if (payment == null)
-                {
-                    return false;
-                }
-
-                var saleId = payment.SaleId;
-
-                _context.Payments.Remove(payment);
-                await _context.SaveChangesAsync();
-
-                // Eğer ödeme bir satışa bağlıysa, satışın ödeme durumunu güncelle
-                if (saleId.HasValue)
-                {
-                    await _saleService.UpdateSalePaymentStatus(saleId.Value, userId);
-                }
-
-                await transaction.CommitAsync();
-                return true;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-
-        #region Private Methods
-
-        private PaymentDto MapToDto(Payment payment)
-        {
-            return new PaymentDto
-            {
-                Id = payment.Id,
-                SaleId = payment.SaleId,
-                SaleNumber = payment.Sale?.SaleNumber,
-                PaymentDate = payment.PaymentDate,
-                CustomerName = payment.CustomerName,
-                Amount = payment.Amount,
-                PaymentType = payment.PaymentType,
-                PaymentTypeText = GetPaymentTypeText(payment.PaymentType),
-                PaymentMethod = payment.PaymentMethod,
-                PaymentMethodText = GetPaymentMethodText(payment.PaymentMethod),
-                CheckNumber = payment.CheckNumber,
-                CheckDate = payment.CheckDate,
-                BankName = payment.BankName,
-                ReferenceNumber = payment.ReferenceNumber,
-                Notes = payment.Notes,
-                CreatedDate = payment.CreatedDate
-            };
-        }
-
-        private string GetPaymentTypeText(PaymentType type)
-        {
-            return type switch
-            {
-                PaymentType.Income => "Tahsilat",
-                PaymentType.Expense => "Ödeme",
-                _ => "Bilinmiyor"
-            };
-        }
-
-        private string GetPaymentMethodText(PaymentMethod method)
-        {
-            return method switch
-            {
-                PaymentMethod.Cash => "Nakit",
-                PaymentMethod.CreditCard => "Kredi Kartı",
-                PaymentMethod.BankTransfer => "Havale/EFT",
-                PaymentMethod.Check => "Çek",
-                PaymentMethod.Other => "Diğer",
-                _ => "Bilinmiyor"
-            };
-        }
-
-        #endregion
-    }
-}
-*/ //Burada ESKİ KODLAR VAR!!
-using Microsoft.EntityFrameworkCore;
-using Hesapix.Data;
-using Hesapix.Models.DTOs.Payment;
-using Hesapix.Models.Entities;
-using Hesapix.Services.Interfaces;
-
-namespace Hesapix.Services.Implementations
-{
-    public class PaymentService : IPaymentService
-    {
-        private readonly ApplicationDbContext _context;
-        private readonly ISaleService _saleService;
-
-        public PaymentService(ApplicationDbContext context, ISaleService saleService)
-        {
-            _context = context;
-            _saleService = saleService;
-        }
-
-        public async Task<PaymentDto> CreatePayment(CreatePaymentRequest request, int userId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync(); 
-
-            try
-            {
-                var payment = new Payment
-                {
-                    UserId = userId,
-                    SaleId = request.SaleId,
-                    PaymentDate = request.PaymentDate,
-                    CustomerName = request.CustomerName,
-                    Amount = request.Amount,
-                    PaymentType = request.PaymentType,
-                    PaymentMethod = request.PaymentMethod,
-                    CheckNumber = request.CheckNumber,
-                    CheckDate = request.CheckDate,
-                    BankName = request.BankName,
-                    ReferenceNumber = request.ReferenceNumber,
-                    Notes = request.Notes,
-                    CreatedDate = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow
                 };
 
                 _context.Payments.Add(payment);
 
-                // Eğer ödeme bir satışa bağlıysa, satışın ödeme durumunu güncelle
-                if (request.SaleId.HasValue && request.PaymentType == PaymentType.Income)
-                {
-                    await _saleService.UpdateSalePaymentStatus(request.SaleId.Value, userId);
-                }
+                sale.PaidAmount += request.Amount;
+                sale.RemainingAmount -= request.Amount;
 
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
 
-                return await GetPaymentById(payment.Id, userId);
+                var paymentDto = _mapper.Map<PaymentDto>(payment);
+                return ApiResponse<PaymentDto>.SuccessResult(paymentDto, "Ödeme kaydedildi");
             }
-            catch
+            catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                throw;
+                _logger.LogError(ex, "Ödeme oluşturma hatası");
+                return ApiResponse<PaymentDto>.FailResult("Ödeme oluşturulamadı");
             }
         }
 
-        public async Task<List<PaymentDto>> GetPayments(int userId, int page = 1, int pageSize = 20, DateTime? startDate = null, DateTime? endDate = null)
+        public async Task<ApiResponse<PaymentDto>> UpdatePaymentAsync(int paymentId, CreatePaymentRequest request, int userId)
         {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-
-            var query = _context.Payments
-                .Include(p => p.Sale)
-                .Where(p => p.UserId == userId);
-
-            if (startDate.HasValue)
-                query = query.Where(p => p.PaymentDate >= startDate.Value);
-
-            if (endDate.HasValue)
-                query = query.Where(p => p.PaymentDate <= endDate.Value);
-
-            var payments = await query
-                .OrderByDescending(p => p.PaymentDate)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            return payments.Select(MapToDto).ToList();
-        }
-
-        public async Task<PaymentDto> GetPaymentById(int id, int userId)
-        {
-            var payment = await _context.Payments
-                .Include(p => p.Sale)
-                .FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId);
-
-            if (payment == null)
-                throw new Exception("Ödeme kaydı bulunamadı");
-
-            return MapToDto(payment);
-        }
-
-        public async Task<List<PaymentDto>> GetPaymentsBySaleId(int saleId, int userId)
-        {
-            var payments = await _context.Payments
-                .Include(p => p.Sale)
-                .Where(p => p.SaleId == saleId && p.UserId == userId)
-                .OrderByDescending(p => p.PaymentDate)
-                .ToListAsync();
-
-            return payments.Select(MapToDto).ToList();
-        }
-
-        public async Task<List<PaymentDto>> GetPaymentsByType(PaymentType type, int userId)
-        {
-            var payments = await _context.Payments
-                .Include(p => p.Sale)
-                .Where(p => p.PaymentType == type && p.UserId == userId)
-                .OrderByDescending(p => p.PaymentDate)
-                .ToListAsync();
-
-            return payments.Select(MapToDto).ToList();
-        }
-
-        public async Task<bool> DeletePayment(int id, int userId)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync(); 
-
             try
             {
                 var payment = await _context.Payments
-                    .FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId);
+                    .Include(p => p.Sale)
+                    .FirstOrDefaultAsync(p => p.Id == paymentId && p.UserId == userId);
 
                 if (payment == null)
-                    return false;
+                {
+                    return ApiResponse<PaymentDto>.FailResult("Ödeme bulunamadı veya erişim yetkiniz yok");
+                }
 
-                var saleId = payment.SaleId;
+                var sale = payment.Sale;
+                if (sale == null)
+                {
+                    return ApiResponse<PaymentDto>.FailResult("İlgili satış bulunamadı");
+                }
+
+                sale.PaidAmount -= payment.Amount;
+                sale.RemainingAmount += payment.Amount;
+
+                if (request.Amount > sale.RemainingAmount)
+                {
+                    return ApiResponse<PaymentDto>.FailResult($"Ödeme tutarı kalan borçtan ({sale.RemainingAmount:C}) fazla olamaz");
+                }
+
+                payment.Amount = request.Amount;
+                payment.PaymentMethod = request.PaymentMethod;
+                payment.PaymentDate = request.PaymentDate.HasValue ? request.PaymentDate.Value : payment.PaymentDate;
+                payment.Notes = request.Notes;
+                payment.UpdatedAt = DateTime.UtcNow;
+
+                sale.PaidAmount += request.Amount;
+                sale.RemainingAmount -= request.Amount;
+
+                await _context.SaveChangesAsync();
+
+                var paymentDto = _mapper.Map<PaymentDto>(payment);
+                return ApiResponse<PaymentDto>.SuccessResult(paymentDto, "Ödeme güncellendi");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ödeme güncelleme hatası");
+                return ApiResponse<PaymentDto>.FailResult("Ödeme güncellenemedi");
+            }
+        }
+
+        public async Task<ApiResponse<bool>> DeletePaymentAsync(int paymentId, int userId)
+        {
+            try
+            {
+                var payment = await _context.Payments
+                    .Include(p => p.Sale)
+                    .FirstOrDefaultAsync(p => p.Id == paymentId && p.UserId == userId);
+
+                if (payment == null)
+                {
+                    return ApiResponse<bool>.FailResult("Ödeme bulunamadı veya erişim yetkiniz yok");
+                }
+
+                var sale = payment.Sale;
+                if (sale != null)
+                {
+                    sale.PaidAmount -= payment.Amount;
+                    sale.RemainingAmount += payment.Amount;
+                }
 
                 _context.Payments.Remove(payment);
                 await _context.SaveChangesAsync();
 
-                // Ödeme bir satışa bağlıysa, satışın borç durumu güncellenir
-                if (saleId.HasValue)
+                return ApiResponse<bool>.SuccessResult(true, "Ödeme silindi");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ödeme silme hatası");
+                return ApiResponse<bool>.FailResult("Ödeme silinemedi");
+            }
+        }
+
+        public async Task<ApiResponse<List<PaymentDto>>> GetPaymentsBySaleIdAsync(int saleId, int userId)
+        {
+            try
+            {
+                var saleExists = await _context.Sales
+                    .AnyAsync(s => s.Id == saleId && s.UserId == userId);
+
+                if (!saleExists)
                 {
-                    await _saleService.UpdateSalePaymentStatus(saleId.Value, userId);
+                    return ApiResponse<List<PaymentDto>>.FailResult("Satış bulunamadı veya erişim yetkiniz yok");
                 }
 
-                await transaction.CommitAsync();
-                return true;
+                var payments = await _context.Payments
+                    .Include(p => p.Sale)
+                    .Where(p => p.SaleId == saleId && p.UserId == userId)
+                    .OrderByDescending(p => p.PaymentDate)
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                var paymentDtos = _mapper.Map<List<PaymentDto>>(payments);
+                return ApiResponse<List<PaymentDto>>.SuccessResult(paymentDtos);
             }
-            catch
+            catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                throw;
+                _logger.LogError(ex, "Satış ödemeleri listeleme hatası");
+                return ApiResponse<List<PaymentDto>>.FailResult("Satış ödemeleri listelenemedi");
             }
         }
-
-        #region Private Methods
-
-        private PaymentDto MapToDto(Payment payment)
-        {
-            return new PaymentDto
-            {
-                Id = payment.Id,
-                SaleId = payment.SaleId,
-                SaleNumber = payment.Sale?.SaleNumber,
-                PaymentDate = payment.PaymentDate,
-                CustomerName = payment.CustomerName,
-                Amount = payment.Amount,
-                PaymentType = payment.PaymentType,
-                PaymentTypeText = GetPaymentTypeText(payment.PaymentType),
-                PaymentMethod = payment.PaymentMethod,
-                PaymentMethodText = GetPaymentMethodText(payment.PaymentMethod),
-                CheckNumber = payment.CheckNumber,
-                CheckDate = payment.CheckDate,
-                BankName = payment.BankName,
-                ReferenceNumber = payment.ReferenceNumber,
-                Notes = payment.Notes,
-                CreatedDate = payment.CreatedDate
-            };
-        }
-
-        private string GetPaymentTypeText(PaymentType type)
-        {
-            return type switch
-            {
-                PaymentType.Income => "Tahsilat",
-                PaymentType.Expense => "Ödeme",
-                _ => "Bilinmiyor"
-            };
-        }
-
-        private string GetPaymentMethodText(PaymentMethod method)
-        {
-            return method switch
-            {
-                PaymentMethod.Cash => "Nakit",
-                PaymentMethod.CreditCard => "Kredi Kartı",
-                PaymentMethod.BankTransfer => "Havale/EFT",
-                PaymentMethod.Check => "Çek",
-                PaymentMethod.Other => "Diğer",
-                _ => "Bilinmiyor"
-            };
-        }
-
-        #endregion
     }
 }

@@ -2,8 +2,9 @@
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Hesapix.Data;
 using Hesapix.Services.Interfaces;
+using Hesapix.Data;
+using Hesapix.Data;
 
 namespace Hesapix.Services.Implementations
 {
@@ -292,7 +293,7 @@ namespace Hesapix.Services.Implementations
 
         public async Task<byte[]> GenerateStockReportPdfAsync(int userId)
         {
-            var stocks = await _context.Stocks
+            var Stoks = await _context.Stocks
                 .Where(s => s.UserId == userId && s.IsActive)
                 .OrderBy(s => s.Category)
                 .ThenBy(s => s.ProductName)
@@ -310,7 +311,7 @@ namespace Hesapix.Services.Implementations
                     {
                         column.Item().Text("STOK RAPORU").FontSize(16).Bold().FontColor(Colors.Blue.Medium);
                         column.Item().Text($"Rapor Tarihi: {DateTime.Now:dd/MM/yyyy HH:mm}").FontSize(8).FontColor(Colors.Grey.Medium);
-                        column.Item().Text($"Toplam Ürün Çeşidi: {stocks.Count}").FontSize(9);
+                        column.Item().Text($"Toplam Ürün Çeşidi: {Stoks.Count}").FontSize(9);
                     });
 
                     page.Content().PaddingTop(20).Table(table =>
@@ -344,7 +345,7 @@ namespace Hesapix.Services.Implementations
                             }
                         });
 
-                        foreach (var stock in stocks)
+                        foreach (var stock in Stoks)
                         {
                             var totalValue = stock.Quantity * stock.PurchasePrice;
                             var lowStock = stock.MinimumStock.HasValue && stock.Quantity <= stock.MinimumStock.Value;
@@ -370,7 +371,7 @@ namespace Hesapix.Services.Implementations
                     page.Footer().AlignRight().Text(x =>
                     {
                         x.Span("Toplam Stok Değeri: ").SemiBold();
-                        x.Span($"{stocks.Sum(s => s.Quantity * s.PurchasePrice):N2} ₺").Bold().FontColor(Colors.Blue.Medium);
+                        x.Span($"{Stoks.Sum(s => s.Quantity * s.PurchasePrice):N2} ₺").Bold().FontColor(Colors.Blue.Medium);
                     });
                 });
             });
@@ -378,14 +379,14 @@ namespace Hesapix.Services.Implementations
             return document.GeneratePdf();
         }
 
-        private static string GetPaymentStatusText(Models.Entities.PaymentStatus status)
+        private static string GetPaymentStatusText(Models.Enums.PaymentStatus status)
         {
             return status switch
             {
-                Models.Entities.PaymentStatus.Pending => "Beklemede",
-                Models.Entities.PaymentStatus.PartialPaid => "Kısmi Ödendi",
-                Models.Entities.PaymentStatus.Paid => "Ödendi",
-                Models.Entities.PaymentStatus.Cancelled => "İptal",
+                Models.Enums.PaymentStatus.Pending => "Beklemede",
+                Models.Enums.PaymentStatus.PartialPaid => "Kısmi Ödendi",
+                Models.Enums.PaymentStatus.Paid => "Ödendi",
+                Models.Enums.PaymentStatus.Cancelled => "İptal",
                 _ => "Bilinmiyor"
             };
         }

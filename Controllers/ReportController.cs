@@ -1,12 +1,13 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+﻿using Hesapix.Models.Common;
+using Hesapix.Models.DTOs.Report;
 using Hesapix.Services.Interfaces;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Hesapix.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/[controller]")]
     [Authorize]
     public class ReportController : ControllerBase
     {
@@ -21,70 +22,123 @@ namespace Hesapix.Controllers
 
         private int GetUserId()
         {
-            return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            return int.Parse(User.FindFirst("UserId")?.Value ?? "0");
         }
 
-        /// <summary>
-        /// Dashboard özet raporu
-        /// </summary>
         [HttpGet("dashboard")]
-        public async Task<IActionResult> GetDashboard([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
+        public async Task<ActionResult<ApiResponse<DashboardReportDto>>> GetDashboardReport(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
         {
             try
             {
-                var report = await _reportService.GetDashboardReport(GetUserId(), startDate, endDate);
-                return Ok(report);
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<DashboardReportDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _reportService.GetDashboardReportAsync(userId, startDate, endDate);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Dashboard raporu hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Dashboard raporu alınırken hata");
+                return StatusCode(500, ApiResponse<DashboardReportDto>.FailResult("Dashboard raporu alınamadı"));
             }
         }
 
-        /// <summary>
-        /// Satış raporu PDF
-        /// </summary>
-        [HttpGet("sales-pdf")]
-        public async Task<IActionResult> GetSalesReportPdf([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        [HttpGet("sales-summary")]
+        public async Task<ActionResult<ApiResponse<SalesSummaryDto>>> GetSalesSummary(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
         {
             try
             {
-                var pdfBytes = await _reportService.GenerateSalesReportPdf(GetUserId(), startDate, endDate);
-                return File(pdfBytes, "application/pdf", $"SatisRaporu_{startDate:yyyyMMdd}_{endDate:yyyyMMdd}.pdf");
-            }
-            catch (NotImplementedException)
-            {
-                return BadRequest(new { message = "PDF rapor özelliği henüz geliştirilmedi" });
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<SalesSummaryDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _reportService.GetSalesSummaryAsync(userId, startDate, endDate);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "PDF rapor oluşturma hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Satış özeti alınırken hata");
+                return StatusCode(500, ApiResponse<SalesSummaryDto>.FailResult("Satış özeti alınamadı"));
             }
         }
 
-        /// <summary>
-        /// Stok raporu Excel
-        /// </summary>
-        [HttpGet("stock-excel")]
-        public async Task<IActionResult> GetStockReportExcel()
+        [HttpGet("top-products")]
+        public async Task<ActionResult<ApiResponse<List<TopProductDto>>>> GetTopProducts(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null,
+            [FromQuery] int top = 10)
         {
             try
             {
-                var excelBytes = await _reportService.GenerateStockReportExcel(GetUserId());
-                return File(excelBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    $"StokRaporu_{DateTime.Now:yyyyMMdd}.xlsx");
-            }
-            catch (NotImplementedException)
-            {
-                return BadRequest(new { message = "Excel rapor özelliği henüz geliştirilmedi" });
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<List<TopProductDto>>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _reportService.GetTopProductsAsync(userId, startDate, endDate, top);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Excel rapor oluşturma hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "En çok satan ürünler alınırken hata");
+                return StatusCode(500, ApiResponse<List<TopProductDto>>.FailResult("En çok satan ürünler alınamadı"));
             }
         }
+
+        [HttpGet("payment-summary")]
+        public async Task<ActionResult<ApiResponse<PaymentSummaryDto>>> GetPaymentSummary(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<PaymentSummaryDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _reportService.GetPaymentSummaryAsync(userId, startDate, endDate);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ödeme özeti alınırken hata");
+                return StatusCode(500, ApiResponse<PaymentSummaryDto>.FailResult("Ödeme özeti alınamadı"));
+            }
+        }
+    }
+
+    public class SalesSummaryDto
+    {
+        public int TotalSales { get; set; }
+        public decimal TotalRevenue { get; set; }
+        public decimal AverageSaleValue { get; set; }
+        public decimal TotalPaid { get; set; }
+        public decimal TotalRemaining { get; set; }
+    }
+
+    public class TopProductDto
+    {
+        public string ProductName { get; set; } = string.Empty;
+        public int TotalQuantitySold { get; set; }
+        public decimal TotalRevenue { get; set; }
+    }
+
+    public class PaymentSummaryDto
+    {
+        public int TotalPayments { get; set; }
+        public decimal TotalAmount { get; set; }
+        public Dictionary<string, decimal> PaymentsByMethod { get; set; } = new();
     }
 }

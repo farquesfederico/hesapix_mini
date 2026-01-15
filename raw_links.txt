@@ -54,7 +54,7 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/I
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IPdfService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IReportService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/ISaleService.cs
-https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IStockService.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IStokservice.cs
 
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/AuthService.cs

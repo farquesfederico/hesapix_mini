@@ -1,34 +1,44 @@
-﻿namespace Hesapix.Models.Entities
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Hesapix.Models.Entities
 {
     public class Subscription
     {
+        [Key]
         public int Id { get; set; }
+
+        [Required]
         public int UserId { get; set; }
-        public SubscriptionType Type { get; set; }        // Aylık / Yıllık
-        public SubscriptionPlatform Platform { get; set; } // Web / GooglePlay / AppStore
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
-        public bool IsActive { get; set; }
-        public decimal Amount { get; set; }
-        public string? TransactionId { get; set; }       // Online ödeme ID
-        public string? ReceiptData { get; set; }        // Ödeme makbuzu / fatura
 
-        // Navigation
-        public virtual User User { get; set; }
-    }
+        [Required]
+        [MaxLength(50)]
+        public string PlanType { get; set; } = "Free"; // Free, Basic, Premium, Enterprise
 
-    public enum SubscriptionType
-    {
-        Monthly = 1,
-        Yearly = 2,
-        Unlimited = 3      // Admin sınırsız abonelik
-    }
+        public DateTime StartDate { get; set; } = DateTime.UtcNow;
 
-    public enum SubscriptionPlatform
-    {
-        Web = 1,
-        GooglePlay = 2,
-        AppStore = 3,
-        MailOrder = 4
+        public DateTime? EndDate { get; set; }
+
+        [Required]
+        [MaxLength(20)]
+        public string Status { get; set; } = "Active"; // Active, Expired, Cancelled
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal Price { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public DateTime? UpdatedAt { get; set; }
+
+        // Navigation Property
+        [ForeignKey(nameof(UserId))]
+        public virtual User User { get; set; } = null!;
+
+        // Helper method
+        public bool IsActive()
+        {
+            return Status == "Active" &&
+                   (EndDate == null || EndDate > DateTime.UtcNow);
+        }
     }
 }

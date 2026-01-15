@@ -1,13 +1,13 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+﻿using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Sale;
 using Hesapix.Services.Interfaces;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Hesapix.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/[controller]")]
     [Authorize]
     public class SaleController : ControllerBase
     {
@@ -22,173 +22,152 @@ namespace Hesapix.Controllers
 
         private int GetUserId()
         {
-            return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            return int.Parse(User.FindFirst("UserId")?.Value ?? "0");
         }
 
-        /// <summary>
-        /// Yeni satış oluştur
-        /// </summary>
-        [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateSaleRequest request)
-        {
-            try
-            {
-                var sale = await _saleService.CreateSale(request, GetUserId());
-                _logger.LogInformation("Yeni satış oluşturuldu - SaleNumber: {SaleNumber}", sale.SaleNumber);
-                return CreatedAtAction(nameof(GetById), new { id = sale.Id }, sale);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Satış oluşturma hatası");
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Tüm satışları getir (sayfalama destekli)
-        /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll(
-            [FromQuery] DateTime? startDate,
-            [FromQuery] DateTime? endDate,
+        public async Task<ActionResult<ApiResponse<List<SaleDto>>>> GetSales(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null,
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 20)
+            [FromQuery] int pageSize = 50)
         {
             try
             {
-                var sales = await _saleService.GetSales(
-                    userId: GetUserId(),
-                    page: page,
-                    pageSize: pageSize,
-                    startDate: startDate,
-                    endDate: endDate);
-
-                return Ok(sales);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Satış listeleme hatası");
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// ID'ye göre satış getir
-        /// </summary>
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(int id)
-        {
-            try
-            {
-                var sale = await _saleService.GetSaleById(id, GetUserId());
-                return Ok(sale);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Satış getirme hatası - ID: {Id}", id);
-                return NotFound(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Satış numarasına göre satış getir
-        /// </summary>
-        [HttpGet("by-number/{saleNumber}")]
-        public async Task<IActionResult> GetByNumber(string saleNumber)
-        {
-            try
-            {
-                var sale = await _saleService.GetSaleByNumber(saleNumber, GetUserId());
-                return Ok(sale);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Satış getirme hatası - SaleNumber: {SaleNumber}", saleNumber);
-                return NotFound(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Satış iptal et
-        /// </summary>
-        [HttpPost("{id}/cancel")]
-        public async Task<IActionResult> Cancel(int id)
-        {
-            try
-            {
-                var result = await _saleService.CancelSale(id, GetUserId());
-
-                if (!result)
+                var userId = GetUserId();
+                if (userId == 0)
                 {
-                    return NotFound(new { message = "Satış bulunamadı" });
+                    return Unauthorized(ApiResponse<List<SaleDto>>.FailResult("Geçersiz kullanıcı"));
                 }
 
-                _logger.LogInformation("Satış iptal edildi - ID: {Id}", id);
-                return Ok(new { message = "Satış başarıyla iptal edildi" });
+                var result = await _saleService.GetSalesByUserIdAsync(userId, startDate, endDate, page, pageSize);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Satış iptal hatası - ID: {Id}", id);
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Satışlar listelenirken hata");
+                return StatusCode(500, ApiResponse<List<SaleDto>>.FailResult("Satışlar listelenemedi"));
             }
         }
 
-        /// <summary>
-        /// Bekleyen ödeme olan satışları getir
-        /// </summary>
-        [HttpGet("pending-payments")]
-        public async Task<IActionResult> GetPendingPayments()
+        [HttpGet("{id}")]
+        public async Task<ActionResult<ApiResponse<SaleDto>>> GetSale(int id)
         {
             try
             {
-                var sales = await _saleService.GetPendingPaymentSales(GetUserId());
-                return Ok(sales);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Bekleyen ödeme listeleme hatası");
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Satış istatistikleri (sayfalama destekli)
-        /// </summary>
-        [HttpGet("statistics")]
-        public async Task<IActionResult> GetStatistics(
-    [FromQuery] DateTime? startDate,
-    [FromQuery] DateTime? endDate,
-    [FromQuery] int page = 1,
-    [FromQuery] int pageSize = 20)
-        {
-            try
-            {
-                var pagedSales = await _saleService.GetSales(
-                    userId: GetUserId(),
-                    page: page,
-                    pageSize: pageSize,
-                    startDate: startDate,
-                    endDate: endDate);
-
-                var sales = pagedSales.Items; // İşte LINQ metodlarını kullanacağımız liste
-
-                var statistics = new
+                var userId = GetUserId();
+                if (userId == 0)
                 {
-                    totalSales = pagedSales.TotalCount, // tüm kayıt sayısı
-                    totalAmount = sales.Sum(s => s.TotalAmount),
-                    paidSales = sales.Count(s => s.PaymentStatus == Models.Entities.PaymentStatus.Paid),
-                    pendingSales = sales.Count(s => s.PaymentStatus == Models.Entities.PaymentStatus.Pending),
-                    partialPaidSales = sales.Count(s => s.PaymentStatus == Models.Entities.PaymentStatus.PartialPaid),
-                    cancelledSales = sales.Count(s => s.PaymentStatus == Models.Entities.PaymentStatus.Cancelled),
-                    averageSaleAmount = sales.Any() ? sales.Average(s => s.TotalAmount) : 0
-                };
+                    return Unauthorized(ApiResponse<SaleDto>.FailResult("Geçersiz kullanıcı"));
+                }
 
-                return Ok(statistics);
+                var result = await _saleService.GetSaleByIdAsync(id, userId);
+
+                if (!result.Success)
+                {
+                    return NotFound(result);
+                }
+
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Satış istatistikleri hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Satış bilgisi alınırken hata: SaleId={SaleId}", id);
+                return StatusCode(500, ApiResponse<SaleDto>.FailResult("Satış bilgisi alınamadı"));
+            }
+        }
+
+        [HttpPost]
+        public async Task<ActionResult<ApiResponse<SaleDto>>> CreateSale([FromBody] CreateSaleRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ApiResponse<SaleDto>.FailResult("Geçersiz veri"));
+                }
+
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<SaleDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _saleService.CreateSaleAsync(request, userId);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Yeni satış oluşturuldu: UserId={UserId}, SaleId={SaleId}", userId, result.Data?.Id);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Satış oluşturulurken hata");
+                return StatusCode(500, ApiResponse<SaleDto>.FailResult("Satış oluşturulamadı"));
+            }
+        }
+
+        [HttpPut("{id}")]
+        public async Task<ActionResult<ApiResponse<SaleDto>>> UpdateSale(int id, [FromBody] CreateSaleRequest request)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ApiResponse<SaleDto>.FailResult("Geçersiz veri"));
+                }
+
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<SaleDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _saleService.UpdateSaleAsync(id, request, userId);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Satış güncellendi: UserId={UserId}, SaleId={SaleId}", userId, id);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Satış güncellenirken hata: SaleId={SaleId}", id);
+                return StatusCode(500, ApiResponse<SaleDto>.FailResult("Satış güncellenemedi"));
+            }
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<ActionResult<ApiResponse<bool>>> DeleteSale(int id)
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<bool>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _saleService.DeleteSaleAsync(id, userId);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Satış silindi: UserId={UserId}, SaleId={SaleId}", userId, id);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Satış silinirken hata: SaleId={SaleId}", id);
+                return StatusCode(500, ApiResponse<bool>.FailResult("Satış silinemedi"));
             }
         }
     }

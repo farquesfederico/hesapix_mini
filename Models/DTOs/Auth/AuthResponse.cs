@@ -2,9 +2,7 @@
 {
     public class AuthResponse
     {
-        public string Token { get; set; }
-        public UserDto User { get; set; }
-        public bool HasActiveSubscription { get; set; }
-        public DateTime? SubscriptionEndDate { get; set; }
+        public string Token { get; set; } = string.Empty;
+        public UserDto User { get; set; } = null!;
     }
 }

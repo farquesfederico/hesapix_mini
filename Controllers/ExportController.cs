@@ -1,236 +1,164 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using Hesapix.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Hesapix.Services.Interfaces;
-using System.Security.Claims;
 
 namespace Hesapix.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/[controller]")]
     [Authorize]
     public class ExportController : ControllerBase
     {
-        private readonly IPdfService _pdfService;
         private readonly IExcelService _excelService;
-        private readonly IEmailService _emailService;
+        private readonly IPdfService _pdfService;
+        private readonly ISaleService _saleService;
+        private readonly IPaymentService _paymentService;
+        private readonly IStockService _stockService;
         private readonly ILogger<ExportController> _logger;
 
         public ExportController(
-            IPdfService pdfService,
             IExcelService excelService,
-            IEmailService emailService,
+            IPdfService pdfService,
+            ISaleService saleService,
+            IPaymentService paymentService,
+            IStockService stockService,
             ILogger<ExportController> logger)
         {
-            _pdfService = pdfService;
             _excelService = excelService;
-            _emailService = emailService;
+            _pdfService = pdfService;
+            _saleService = saleService;
+            _paymentService = paymentService;
+            _stockService = stockService;
             _logger = logger;
         }
 
         private int GetUserId()
         {
-            return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            return int.Parse(User.FindFirst("UserId")?.Value ?? "0");
         }
 
-        private string GetUserEmail()
-        {
-            return User.FindFirst(ClaimTypes.Email)?.Value ?? "";
-        }
-
-        private string GetUserName()
-        {
-            return User.FindFirst(ClaimTypes.Name)?.Value ?? "";
-        }
-
-        #region PDF Exports
-
-        /// <summary>
-        /// Fatura PDF'i oluştur
-        /// </summary>
-        [HttpGet("pdf/invoice/{saleId}")]
-        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GenerateInvoicePdf(int saleId)
+        [HttpGet("sales/excel")]
+        public async Task<IActionResult> ExportSalesToExcel(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
         {
             try
             {
-                var pdfBytes = await _pdfService.GenerateInvoicePdfAsync(saleId, GetUserId());
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized();
+                }
 
-                _logger.LogInformation("Fatura PDF oluşturuldu - SaleId: {SaleId}", saleId);
+                var salesResult = await _saleService.GetSalesByUserIdAsync(userId, startDate, endDate, 1, int.MaxValue);
 
-                return File(pdfBytes, "application/pdf", $"Fatura_{saleId}_{DateTime.Now:yyyyMMdd}.pdf");
+                if (!salesResult.Success || salesResult.Data == null)
+                {
+                    return BadRequest("Satış verileri alınamadı");
+                }
+
+                var excelData = _excelService.ExportSalesToExcel(salesResult.Data);
+
+                var fileName = $"Satislar_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+                return File(excelData, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Fatura PDF oluşturma hatası - SaleId: {SaleId}", saleId);
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Satışlar Excel'e aktarılırken hata");
+                return StatusCode(500, "Excel oluşturulamadı");
             }
         }
 
-        /// <summary>
-        /// Satış raporu PDF'i oluştur
-        /// </summary>
-        [HttpGet("pdf/sales-report")]
-        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GenerateSalesReportPdf([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        [HttpGet("sales/{id}/pdf")]
+        public async Task<IActionResult> ExportSaleToPdf(int id)
         {
             try
             {
-                var pdfBytes = await _pdfService.GenerateSalesReportPdfAsync(startDate, endDate, GetUserId());
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized();
+                }
 
-                _logger.LogInformation("Satış raporu PDF oluşturuldu");
+                var saleResult = await _saleService.GetSaleByIdAsync(id, userId);
 
-                return File(pdfBytes, "application/pdf", $"Satis_Raporu_{DateTime.Now:yyyyMMdd}.pdf");
+                if (!saleResult.Success || saleResult.Data == null)
+                {
+                    return NotFound("Satış bulunamadı");
+                }
+
+                var pdfData = _pdfService.GenerateSaleInvoicePdf(saleResult.Data);
+
+                var fileName = $"Fatura_{id}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+                return File(pdfData, "application/pdf", fileName);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Satış raporu PDF oluşturma hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Satış PDF'e aktarılırken hata: SaleId={SaleId}", id);
+                return StatusCode(500, "PDF oluşturulamadı");
             }
         }
 
-        /// <summary>
-        /// Stok raporu PDF'i oluştur
-        /// </summary>
-        [HttpGet("pdf/stock-report")]
-        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GenerateStockReportPdf()
+        [HttpGet("payments/excel")]
+        public async Task<IActionResult> ExportPaymentsToExcel(
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null)
         {
             try
             {
-                var pdfBytes = await _pdfService.GenerateStockReportPdfAsync(GetUserId());
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized();
+                }
 
-                _logger.LogInformation("Stok raporu PDF oluşturuldu");
+                var paymentsResult = await _paymentService.GetPaymentsByUserIdAsync(userId, startDate, endDate, 1, int.MaxValue);
 
-                return File(pdfBytes, "application/pdf", $"Stok_Raporu_{DateTime.Now:yyyyMMdd}.pdf");
+                if (!paymentsResult.Success || paymentsResult.Data == null)
+                {
+                    return BadRequest("Ödeme verileri alınamadı");
+                }
+
+                var excelData = _excelService.ExportPaymentsToExcel(paymentsResult.Data);
+
+                var fileName = $"Odemeler_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+                return File(excelData, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stok raporu PDF oluşturma hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Ödemeler Excel'e aktarılırken hata");
+                return StatusCode(500, "Excel oluşturulamadı");
             }
         }
 
-        #endregion
-
-        #region Excel Exports
-
-        /// <summary>
-        /// Satışları Excel'e aktar
-        /// </summary>
-        [HttpGet("excel/sales")]
-        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-        public async Task<IActionResult> ExportSalesToExcel([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        [HttpGet("stocks/excel")]
+        public async Task<IActionResult> ExportStocksToExcel([FromQuery] string? search = null)
         {
             try
             {
-                var excelBytes = await _excelService.ExportSalesAsync(startDate, endDate, GetUserId());
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized();
+                }
 
-                _logger.LogInformation("Satışlar Excel'e aktarıldı");
+                var stocksResult = await _stockService.GetStocksByUserIdAsync(userId, search, 1, int.MaxValue);
 
-                return File(
-                    excelBytes,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    $"Satislar_{DateTime.Now:yyyyMMdd}.xlsx"
-                );
+                if (!stocksResult.Success || stocksResult.Data == null)
+                {
+                    return BadRequest("Stok verileri alınamadı");
+                }
+
+                var excelData = _excelService.ExportStocksToExcel(stocksResult.Data);
+
+                var fileName = $"Stoklar_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+                return File(excelData, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Satışlar Excel export hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Stoklar Excel'e aktarılırken hata");
+                return StatusCode(500, "Excel oluşturulamadı");
             }
         }
-
-        /// <summary>
-        /// Stokları Excel'e aktar
-        /// </summary>
-        [HttpGet("excel/stocks")]
-        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-        public async Task<IActionResult> ExportStocksToExcel()
-        {
-            try
-            {
-                var excelBytes = await _excelService.ExportStocksAsync(GetUserId());
-
-                _logger.LogInformation("Stoklar Excel'e aktarıldı");
-
-                return File(
-                    excelBytes,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    $"Stoklar_{DateTime.Now:yyyyMMdd}.xlsx"
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Stoklar Excel export hatası");
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Ödemeleri Excel'e aktar
-        /// </summary>
-        [HttpGet("excel/payments")]
-        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
-        public async Task<IActionResult> ExportPaymentsToExcel([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
-        {
-            try
-            {
-                var excelBytes = await _excelService.ExportPaymentsAsync(startDate, endDate, GetUserId());
-
-                _logger.LogInformation("Ödemeler Excel'e aktarıldı");
-
-                return File(
-                    excelBytes,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    $"Odemeler_{DateTime.Now:yyyyMMdd}.xlsx"
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ödemeler Excel export hatası");
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        #endregion
-
-        #region Email with Attachments
-
-        /// <summary>
-        /// Faturayı email ile gönder
-        /// </summary>
-        [HttpPost("email/invoice/{saleId}")]
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        public async Task<IActionResult> EmailInvoice(int saleId, [FromBody] EmailInvoiceRequest request)
-        {
-            try
-            {
-                var pdfBytes = await _pdfService.GenerateInvoicePdfAsync(saleId, GetUserId());
-
-                await _emailService.SendInvoiceEmailAsync(
-                    request.Email ?? GetUserEmail(),
-                    request.Name ?? GetUserName(),
-                    pdfBytes,
-                    $"INV-{saleId}"
-                );
-
-                _logger.LogInformation("Fatura email ile gönderildi - SaleId: {SaleId}, Email: {Email}", saleId, request.Email);
-
-                return Ok(new { message = "Fatura başarıyla email ile gönderildi" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Fatura email gönderme hatası - SaleId: {SaleId}", saleId);
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        #endregion
-    }
-
-    public class EmailInvoiceRequest
-    {
-        public string? Email { get; set; }
-        public string? Name { get; set; }
     }
 }

@@ -1,11 +1,12 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Hesapix.Models.Enums; // PaymentMethod enum'u burada olmalı
 
 namespace Hesapix.Models.DTOs.Sale
 {
     public class CreateSaleRequest
     {
         [Required]
-        public DateTime SaleDate { get; set; }
+        public DateTime? SaleDate { get; set; }
 
         [Required(ErrorMessage = "Müşteri adı zorunludur")]
         [MaxLength(200)]
@@ -34,12 +35,18 @@ namespace Hesapix.Models.DTOs.Sale
 
         [MaxLength(500)]
         public string? Notes { get; set; }
+
+        // --------- EKLENECEK ALANLAR ---------
+        [Range(0, double.MaxValue)]
+        public decimal PaidAmount { get; set; } // Ödenen miktar
+
+        public PaymentMethod PaymentMethod { get; set; } // Enum tipinde ödeme yöntemi
     }
 
     public class SaleItemRequest
     {
         [Required]
-        public int StockId { get; set; }
+        public int StokId { get; set; }
 
         [Required]
         [Range(0.001, double.MaxValue, ErrorMessage = "Miktar 0'dan büyük olmalıdır")]

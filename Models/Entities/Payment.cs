@@ -1,39 +1,42 @@
-﻿namespace Hesapix.Models.Entities
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Hesapix.Models.Entities
 {
     public class Payment
     {
+        [Key]
         public int Id { get; set; }
+
+        [Required]
         public int UserId { get; set; }
-        public int? SaleId { get; set; }
-        public DateTime PaymentDate { get; set; }
-        public string CustomerName { get; set; }
+
+        [Required]
+        public int SaleId { get; set; }
+
+        [Required]
+        [Column(TypeName = "decimal(18,2)")]
         public decimal Amount { get; set; }
-        public PaymentType PaymentType { get; set; }
-        public PaymentMethod PaymentMethod { get; set; }
-        public string? CheckNumber { get; set; }
-        public DateTime? CheckDate { get; set; }
-        public string? BankName { get; set; }
-        public string? ReferenceNumber { get; set; }
+
+        [Required]
+        [MaxLength(50)]
+        public string PaymentMethod { get; set; } = string.Empty;
+
+        [Required]
+        public DateTime PaymentDate { get; set; } = DateTime.UtcNow;
+
+        [MaxLength(500)]
         public string? Notes { get; set; }
-        public DateTime CreatedDate { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public DateTime? UpdatedAt { get; set; }
 
         // Navigation Properties
-        public virtual User User { get; set; }
-        public virtual Sale Sale { get; set; }
-    }
+        [ForeignKey(nameof(UserId))]
+        public virtual User User { get; set; } = null!;
 
-    public enum PaymentType
-    {
-        Income = 1,   // Tahsilat
-        Expense = 2   // Ödeme
-    }
-
-    public enum PaymentMethod
-    {
-        Cash = 1,           // Nakit
-        CreditCard = 2,     // Kredi Kartı
-        BankTransfer = 3,   // Havale/EFT
-        Check = 4,          // Çek
-        Other = 5           // Diğer
+        [ForeignKey(nameof(SaleId))]
+        public virtual Sale? Sale { get; set; }
     }
 }

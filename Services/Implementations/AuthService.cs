@@ -1,15 +1,16 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using AutoMapper;
+using Hesapix.Data;
+using Hesapix.Models.Common;
+using Hesapix.Models.DTOs;
+using Hesapix.Models.DTOs.Auth;
+using Hesapix.Models.Entities;
+using Hesapix.Services.Interfaces;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
-using Hesapix.Data;
-using Hesapix.Models.DTOs;
-using Hesapix.Models.DTOs.Auth;
-using Hesapix.Models.Entities;
-using Hesapix.Services.Interfaces;
-using BCrypt.Net;
 
 namespace Hesapix.Services.Implementations
 {
@@ -17,357 +18,246 @@ namespace Hesapix.Services.Implementations
     {
         private readonly ApplicationDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly IMapper _mapper;
         private readonly ILogger<AuthService> _logger;
-        private readonly IEmailService _emailService;
 
-        public AuthService(
-            ApplicationDbContext context,
-            IConfiguration configuration,
-            ILogger<AuthService> logger,
-            IEmailService emailService)
+        public AuthService(ApplicationDbContext context, IConfiguration configuration, IMapper mapper, ILogger<AuthService> logger)
         {
             _context = context;
             _configuration = configuration;
+            _mapper = mapper;
             _logger = logger;
-            _emailService = emailService;
         }
 
-        public async Task<AuthResponse> Register(RegisterRequest request)
-        {
-            // Email kontrolü
-            if (await _context.Users.AnyAsync(u => u.Email == request.Email))
-            {
-                _logger.LogWarning("Registration attempt with existing email: {Email}", request.Email);
-                throw new InvalidOperationException("Bu e-posta adresi zaten kayıtlı");
-            }
-
-            // Şifre güvenlik kontrolü
-            if (!IsPasswordStrong(request.Password))
-            {
-                throw new InvalidOperationException(
-                    "Şifre en az 8 karakter, 1 büyük harf, 1 küçük harf ve 1 rakam içermelidir");
-            }
-
-            // Email doğrulama kodu oluştur
-            var verificationCode = GenerateVerificationCode();
-            var verificationExpiry = DateTime.UtcNow.AddHours(24);
-
-            // Yeni kullanıcı oluştur
-            var user = new User
-            {
-                Email = request.Email,
-                PasswordHash = HashPassword(request.Password),
-                FullName = request.FullName,
-                PhoneNumber = request.PhoneNumber,
-                CompanyName = request.CompanyName,
-                TaxNumber = request.TaxNumber,
-                CreatedDate = DateTime.UtcNow,
-                IsActive = true,
-                EmailVerified = false,
-                EmailVerificationCode = verificationCode,
-                EmailVerificationExpiry = verificationExpiry
-            };
-
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
-
-            // Doğrulama emaili gönder
-            await _emailService.SendVerificationEmailAsync(user.Email, user.FullName, verificationCode);
-
-            _logger.LogInformation("New user registered: {Email}", request.Email);
-
-            // JWT token oluştur
-            var token = GenerateJwtToken(user);
-
-            return new AuthResponse
-            {
-                Token = token,
-                User = MapToUserDto(user),
-                HasActiveSubscription = false,
-                SubscriptionEndDate = null
-            };
-        }
-
-        public async Task<AuthResponse> Login(LoginRequest request)
-        {
-            // Kullanıcıyı bul
-            var user = await _context.Users
-                .Include(u => u.Subscription)
-                .FirstOrDefaultAsync(u => u.Email == request.Email);
-
-            if (user == null)
-            {
-                _logger.LogWarning("Login attempt with non-existent email: {Email}", request.Email);
-                await Task.Delay(Random.Shared.Next(100, 500)); // Timing attack önlemi
-                throw new UnauthorizedAccessException("E-posta veya şifre hatalı");
-            }
-
-            // Şifre kontrolü
-            if (!VerifyPassword(request.Password, user.PasswordHash))
-            {
-                _logger.LogWarning("Failed login attempt for user: {Email}", request.Email);
-
-                // Failed login counter artır
-                user.FailedLoginAttempts++;
-                user.LastFailedLoginDate = DateTime.UtcNow;
-
-                // 5 başarısız denemeden sonra hesabı kilitle
-                if (user.FailedLoginAttempts >= 5)
-                {
-                    user.IsActive = false;
-                    user.LockoutEnd = DateTime.UtcNow.AddMinutes(30);
-                    _logger.LogWarning("User account locked due to failed attempts: {Email}", request.Email);
-                }
-
-                await _context.SaveChangesAsync();
-                await Task.Delay(Random.Shared.Next(100, 500)); // Timing attack önlemi
-                throw new UnauthorizedAccessException("E-posta veya şifre hatalı");
-            }
-
-            // Lockout kontrolü
-            if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
-            {
-                var remainingMinutes = (user.LockoutEnd.Value - DateTime.UtcNow).TotalMinutes;
-                throw new UnauthorizedAccessException(
-                    $"Hesabınız kilitli. Lütfen {Math.Ceiling(remainingMinutes)} dakika sonra tekrar deneyin.");
-            }
-
-            // Hesap aktif mi kontrol et
-            if (!user.IsActive)
-            {
-                throw new UnauthorizedAccessException("Hesabınız deaktif durumda. Lütfen destek ile iletişime geçin.");
-            }
-
-            // Başarılı giriş - counter'ları sıfırla
-            user.FailedLoginAttempts = 0;
-            user.LastLoginDate = DateTime.UtcNow;
-            user.LockoutEnd = null;
-            await _context.SaveChangesAsync();
-
-            // Abonelik kontrolü
-            var hasActiveSubscription = user.Subscription != null &&
-                                        user.Subscription.IsActive &&
-                                        user.Subscription.EndDate > DateTime.UtcNow;
-
-            _logger.LogInformation("Successful login for user: {Email}", request.Email);
-
-            // JWT token oluştur
-            var token = GenerateJwtToken(user);
-
-            return new AuthResponse
-            {
-                Token = token,
-                User = MapToUserDto(user),
-                HasActiveSubscription = hasActiveSubscription,
-                SubscriptionEndDate = user.Subscription?.EndDate
-            };
-        }
-
-        public async Task<bool> CheckSubscription(int userId)
-        {
-            var subscription = await _context.Subscriptions
-                .FirstOrDefaultAsync(s => s.UserId == userId && s.IsActive);
-
-            if (subscription == null)
-            {
-                return false;
-            }
-
-            return subscription.EndDate > DateTime.UtcNow;
-        }
-
-        public async Task<bool> VerifyEmail(string email, string verificationCode)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-
-            if (user == null)
-            {
-                return false;
-            }
-
-            if (user.EmailVerified)
-            {
-                return true;
-            }
-
-            if (user.EmailVerificationCode != verificationCode)
-            {
-                _logger.LogWarning("Invalid verification code for user: {Email}", email);
-                return false;
-            }
-
-            if (user.EmailVerificationExpiry < DateTime.UtcNow)
-            {
-                _logger.LogWarning("Expired verification code for user: {Email}", email);
-                return false;
-            }
-
-            user.EmailVerified = true;
-            user.EmailVerificationCode = null;
-            user.EmailVerificationExpiry = null;
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation("Email verified for user: {Email}", email);
-            return true;
-        }
-
-        public async Task<bool> RequestPasswordReset(string email)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-
-            if (user == null)
-            {
-                // Güvenlik: Email bulunamasa bile başarılı dön
-                _logger.LogWarning("Password reset requested for non-existent email: {Email}", email);
-                return true;
-            }
-
-        public async Task<bool> ResetPassword(string email, string newPassword, string resetToken)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-
-            if (user == null || user.PasswordResetToken != resetToken)
-            {
-                // Güvenlik: Email bulunamasa bile başarılı dön
-                _logger.LogWarning("Password reset requested for non-existent email: {Email}", email);
-                return true;
-            }
-
-            // Reset token oluştur
-            var resetToken = GenerateSecureToken();
-            var resetExpiry = DateTime.UtcNow.AddHours(1);
-
-            user.PasswordResetToken = resetToken;
-            user.PasswordResetExpiry = resetExpiry;
-            await _context.SaveChangesAsync();
-
-            // Reset emaili gönder
-            await _emailService.SendPasswordResetEmailAsync(user.Email, user.FullName, resetToken);
-
-            _logger.LogInformation("Password reset requested for user: {Email}", email);
-            return true;
-        }
-
-        public async Task<bool> ResetPassword(string email, string newPassword, string resetToken)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-
-            if (user == null || user.PasswordResetToken != resetToken)
-            {
-                return false;
-            }
-
-            if (user.PasswordResetExpiry < DateTime.UtcNow)
-            {
-                _logger.LogWarning("Expired password reset token for user: {Email}", email);
-                return false;
-            }
-
-            if (!IsPasswordStrong(newPassword))
-            {
-                throw new InvalidOperationException(
-                    "Şifre en az 8 karakter, 1 büyük harf, 1 küçük harf ve 1 rakam içermelidir");
-            }
-
-            user.PasswordHash = HashPassword(newPassword);
-            user.PasswordResetToken = null;
-            user.PasswordResetExpiry = null;
-            user.FailedLoginAttempts = 0;
-            user.LockoutEnd = null;
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation("Password reset successful for user: {Email}", email);
-            return true;
-        }
-
-        #region Private Methods
-
-        private string HashPassword(string password)
-        {
-            // BCrypt kullanarak güvenli hash
-            return BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
-        }
-
-        private bool VerifyPassword(string password, string hash)
+        public async Task<ApiResponse<AuthResponse>> RegisterAsync(RegisterRequest request)
         {
             try
             {
-                return BCrypt.Net.BCrypt.Verify(password, hash);
+                if (await _context.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
+                    return ApiResponse<AuthResponse>.FailResult("Bu email adresi zaten kullanılıyor");
+
+                if (!IsPasswordStrong(request.Password))
+                    return ApiResponse<AuthResponse>.FailResult("Şifre en az 8 karakter, 1 büyük harf, 1 küçük harf ve 1 rakam içermelidir");
+
+                var user = new User
+                {
+                    FullName = request.FullName,
+                    Email = request.Email.ToLower(),
+                    PasswordHash = HashPassword(request.Password),
+                    Role = "User",
+                    CreatedAt = DateTime.UtcNow,
+                    IsActive = true
+                };
+
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
+
+                var token = GenerateJwtToken(user);
+                var userDto = _mapper.Map<UserDto>(user);
+                _logger.LogInformation("Yeni kullanıcı kaydedildi: {Email}", request.Email);
+
+                return ApiResponse<AuthResponse>.SuccessResult(new AuthResponse { Token = token, User = userDto }, "Kayıt başarılı");
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                _logger.LogError(ex, "Kayıt sırasında hata");
+                return ApiResponse<AuthResponse>.FailResult("Kayıt işlemi başarısız");
             }
         }
 
-        private bool IsPasswordStrong(string password)
+        public async Task<ApiResponse<AuthResponse>> LoginAsync(LoginRequest request)
         {
-            if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
-                return false;
+            try
+            {
+                var user = await _context.Users.Include(u => u.Subscription).FirstOrDefaultAsync(u => u.Email.ToLower() == request.Email.ToLower());
+                if (user == null)
+                {
+                    _logger.LogWarning("Giriş denemesi: {Email}", request.Email);
+                    await Task.Delay(Random.Shared.Next(100, 500));
+                    return ApiResponse<AuthResponse>.FailResult("Email veya şifre hatalı");
+                }
 
-            bool hasUpperCase = password.Any(char.IsUpper);
-            bool hasLowerCase = password.Any(char.IsLower);
-            bool hasDigit = password.Any(char.IsDigit);
+                if (!user.IsActive)
+                    return ApiResponse<AuthResponse>.FailResult("Hesabınız pasif durumda");
 
-            return hasUpperCase && hasLowerCase && hasDigit;
+                if (!VerifyPassword(request.Password, user.PasswordHash))
+                {
+                    _logger.LogWarning("Başarısız giriş: {Email}", request.Email);
+                    await Task.Delay(Random.Shared.Next(100, 500));
+                    return ApiResponse<AuthResponse>.FailResult("Email veya şifre hatalı");
+                }
+
+                user.LastLoginAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                var token = GenerateJwtToken(user);
+                var userDto = _mapper.Map<UserDto>(user);
+                _logger.LogInformation("Başarılı giriş: {Email}", request.Email);
+
+                return ApiResponse<AuthResponse>.SuccessResult(new AuthResponse { Token = token, User = userDto }, "Giriş başarılı");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Giriş sırasında hata");
+                return ApiResponse<AuthResponse>.FailResult("Giriş işlemi başarısız");
+            }
         }
 
-        private string GenerateVerificationCode()
+        public async Task<ApiResponse<AuthResponse>> RefreshTokenAsync(int userId)
         {
-            return Random.Shared.Next(100000, 999999).ToString();
+            try
+            {
+                var user = await _context.Users.Include(u => u.Subscription).FirstOrDefaultAsync(u => u.Id == userId);
+                if (user == null || !user.IsActive)
+                    return ApiResponse<AuthResponse>.FailResult("Kullanıcı bulunamadı");
+
+                var token = GenerateJwtToken(user);
+                var userDto = _mapper.Map<UserDto>(user);
+                return ApiResponse<AuthResponse>.SuccessResult(new AuthResponse { Token = token, User = userDto }, "Token yenilendi");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Token yenileme hatası");
+                return ApiResponse<AuthResponse>.FailResult("Token yenileme başarısız");
+            }
         }
 
-        private string GenerateSecureToken()
+        public async Task<ApiResponse<bool>> ChangePasswordAsync(int userId, string oldPassword, string newPassword)
         {
-            var randomBytes = new byte[32];
-            using var rng = RandomNumberGenerator.Create();
-            rng.GetBytes(randomBytes);
-            return Convert.ToBase64String(randomBytes);
+            try
+            {
+                var user = await _context.Users.FindAsync(userId);
+                if (user == null)
+                    return ApiResponse<bool>.FailResult("Kullanıcı bulunamadı");
+
+                if (!VerifyPassword(oldPassword, user.PasswordHash))
+                    return ApiResponse<bool>.FailResult("Mevcut şifre hatalı");
+
+                if (!IsPasswordStrong(newPassword))
+                    return ApiResponse<bool>.FailResult("Şifre en az 8 karakter, 1 büyük harf, 1 küçük harf ve 1 rakam içermelidir");
+
+                user.PasswordHash = HashPassword(newPassword);
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Şifre değiştirildi: UserId={UserId}", userId);
+
+                return ApiResponse<bool>.SuccessResult(true, "Şifre başarıyla değiştirildi");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Şifre değiştirme hatası");
+                return ApiResponse<bool>.FailResult("Şifre değiştirme başarısız");
+            }
+        }
+
+        public async Task<ApiResponse<bool>> UpdateUserRoleAsync(int userId, string role)
+        {
+            try
+            {
+                if (role != "Admin" && role != "User")
+                    return ApiResponse<bool>.FailResult("Geçersiz rol");
+
+                var user = await _context.Users.FindAsync(userId);
+                if (user == null)
+                    return ApiResponse<bool>.FailResult("Kullanıcı bulunamadı");
+
+                user.Role = role;
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Rol güncellendi: UserId={UserId}, Role={Role}", userId, role);
+
+                return ApiResponse<bool>.SuccessResult(true, $"Kullanıcı rolü {role} olarak güncellendi");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Rol güncelleme hatası");
+                return ApiResponse<bool>.FailResult("Rol güncellenemedi");
+            }
+        }
+
+        public async Task<ApiResponse<List<UserDto>>> GetAllUsersAsync(int page, int pageSize, string? search)
+        {
+            try
+            {
+                var query = _context.Users.Include(u => u.Subscription).AsQueryable();
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    search = search.ToLower();
+                    query = query.Where(u => u.FullName.ToLower().Contains(search) || u.Email.ToLower().Contains(search));
+                }
+
+                var totalCount = await query.CountAsync();
+                var users = await query.OrderByDescending(u => u.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize).AsNoTracking().ToListAsync();
+                var userDtos = _mapper.Map<List<UserDto>>(users);
+
+                return ApiResponse<List<UserDto>>.SuccessResult(userDtos, $"Toplam {totalCount} kullanıcı bulundu");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Kullanıcılar listeleme hatası");
+                return ApiResponse<List<UserDto>>.FailResult("Kullanıcılar listelenemedi");
+            }
+        }
+
+        public async Task<ApiResponse<UserDto>> GetUserByIdAsync(int userId)
+        {
+            try
+            {
+                var user = await _context.Users.Include(u => u.Subscription).AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+                if (user == null)
+                    return ApiResponse<UserDto>.FailResult("Kullanıcı bulunamadı");
+
+                var userDto = _mapper.Map<UserDto>(user);
+                return ApiResponse<UserDto>.SuccessResult(userDto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Kullanıcı bilgisi alma hatası");
+                return ApiResponse<UserDto>.FailResult("Kullanıcı bilgisi alınamadı");
+            }
         }
 
         private string GenerateJwtToken(User user)
         {
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]
-                    ?? throw new InvalidOperationException("JWT Key not configured"))
-            );
+            var jwtKey = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key bulunamadı");
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim("UserId", user.Id.ToString()),
                 new Claim(ClaimTypes.Email, user.Email),
                 new Claim(ClaimTypes.Name, user.FullName),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                new Claim(ClaimTypes.Role, user.Role),
+                new Claim("HasActiveSubscription", (user.Subscription?.IsActive() ?? false).ToString())
             };
-
-            var tokenExpiration = DateTime.UtcNow.AddDays(7); // 7 gün
 
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: tokenExpiration,
+                expires: DateTime.UtcNow.AddDays(7),
                 signingCredentials: credentials
             );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
-        private UserDto MapToUserDto(User user)
+        private string HashPassword(string password)
         {
-            return new UserDto
-            {
-                Id = user.Id,
-                Email = user.Email,
-                FullName = user.FullName,
-                PhoneNumber = user.PhoneNumber,
-                CompanyName = user.CompanyName,
-                TaxNumber = user.TaxNumber,
-                EmailVerified = user.EmailVerified
-            };
+            using var sha256 = SHA256.Create();
+            var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password));
+            return Convert.ToBase64String(hashedBytes);
         }
 
-        #endregion
+        private bool VerifyPassword(string password, string passwordHash)
+        {
+            return HashPassword(password) == passwordHash;
+        }
+
+        private bool IsPasswordStrong(string password)
+        {
+            if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
+                return false;
+            return password.Any(char.IsUpper) && password.Any(char.IsLower) && password.Any(char.IsDigit);
+        }
     }
 }

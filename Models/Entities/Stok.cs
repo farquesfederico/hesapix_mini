@@ -1,27 +1,52 @@
-﻿namespace Hesapix.Models.Entities
-{
-    public class Stock
-    {
-        public int Id { get; set; }
-        public int UserId { get; set; }
-        public string ProductCode { get; set; }
-        public string ProductName { get; set; }
-        public string? Description { get; set; }
-        public string? Category { get; set; }
-        public string? Unit { get; set; } // Adet, Kg, Litre vb.
-        public decimal Quantity { get; set; }
-        public decimal PurchasePrice { get; set; }
-        public decimal SalePrice { get; set; }
-        public decimal? MinimumStock { get; set; }
-        public string? Barcode { get; set; }
-        public DateTime CreatedDate { get; set; }
-        public DateTime? UpdatedDate { get; set; }
-        public bool IsActive { get; set; }
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
-       /* public decimal TaxRate { get; set; } // KDV oranı */
+namespace Hesapix.Models.Entities
+{
+    public class Stok
+    {
+        [Key]
+        public int Id { get; set; }
+
+        [Required]
+        public int UserId { get; set; }
+
+        [Required]
+        [MaxLength(200)]
+        public string ProductName { get; set; } = string.Empty;
+
+        [MaxLength(50)]
+        public string? ProductCode { get; set; }
+
+        [MaxLength(100)]
+        public string? Category { get; set; }
+
+        [Required]
+        public int Quantity { get; set; }
+
+        [Required]
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal UnitPrice { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? CostPrice { get; set; }
+
+        [MaxLength(20)]
+        public string? Unit { get; set; } = "Adet";
+
+        public int? MinStockLevel { get; set; }
+
+        [MaxLength(500)]
+        public string? Description { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public DateTime? UpdatedAt { get; set; }
 
         // Navigation Properties
-        public virtual User User { get; set; }
-        public virtual ICollection<SaleItem> SaleItems { get; set; }
+        [ForeignKey(nameof(UserId))]
+        public virtual User User { get; set; } = null!;
+
+        public virtual ICollection<SaleItem> SaleItems { get; set; } = new List<SaleItem>();
     }
 }

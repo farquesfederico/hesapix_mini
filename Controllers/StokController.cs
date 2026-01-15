@@ -1,20 +1,20 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Hesapix.Services.Interfaces;
-using System.Security.Claims;
+﻿using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Stock;
+using Hesapix.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Hesapix.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/[controller]")]
     [Authorize]
-    public class StockController : ControllerBase
+    public class StokController : ControllerBase
     {
         private readonly IStockService _stockService;
-        private readonly ILogger<StockController> _logger;
+        private readonly ILogger<StokController> _logger;
 
-        public StockController(IStockService stockService, ILogger<StockController> logger)
+        public StokController(IStockService stockService, ILogger<StokController> logger)
         {
             _stockService = stockService;
             _logger = logger;
@@ -22,195 +22,186 @@ namespace Hesapix.Controllers
 
         private int GetUserId()
         {
-            return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            return int.Parse(User.FindFirst("UserId")?.Value ?? "0");
         }
 
-        /// <summary>
-        /// Tüm stokları getir
-        /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<ActionResult<ApiResponse<List<StockDto>>>> GetStocks(
+            [FromQuery] string? search = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
         {
             try
             {
-                var stocks = await _stockService.GetAllStocks(GetUserId());
-                return Ok(stocks);
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<List<StockDto>>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _stockService.GetStocksByUserIdAsync(userId, search, page, pageSize);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stok listeleme hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Stoklar listelenirken hata");
+                return StatusCode(500, ApiResponse<List<StockDto>>.FailResult("Stoklar listelenemedi"));
             }
         }
 
-        /// <summary>
-        /// ID'ye göre stok getir
-        /// </summary>
         [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(int id)
+        public async Task<ActionResult<ApiResponse<StockDto>>> GetStock(int id)
         {
             try
             {
-                var stock = await _stockService.GetStockById(id, GetUserId());
-                return Ok(stock);
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<StockDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _stockService.GetStockByIdAsync(id, userId);
+
+                if (!result.Success)
+                {
+                    return NotFound(result);
+                }
+
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stok getirme hatası - ID: {Id}", id);
-                return NotFound(new { message = ex.Message });
+                _logger.LogError(ex, "Stok bilgisi alınırken hata: StockId={StockId}", id);
+                return StatusCode(500, ApiResponse<StockDto>.FailResult("Stok bilgisi alınamadı"));
             }
         }
 
-        /// <summary>
-        /// Ürün koduna göre stok getir
-        /// </summary>
-        [HttpGet("by-code/{productCode}")]
-        public async Task<IActionResult> GetByCode(string productCode)
-        {
-            try
-            {
-                var stock = await _stockService.GetStockByCode(productCode, GetUserId());
-                return Ok(stock);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Stok getirme hatası - Code: {Code}", productCode);
-                return NotFound(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Yeni stok ekle
-        /// </summary>
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] StockDto dto)
+        public async Task<ActionResult<ApiResponse<StockDto>>> CreateStock([FromBody] CreateStockRequest request)
         {
             try
             {
-                var stock = await _stockService.CreateStock(dto, GetUserId());
-                _logger.LogInformation("Yeni stok eklendi - Code: {Code}", stock.ProductCode);
-                return CreatedAtAction(nameof(GetById), new { id = stock.Id }, stock);
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ApiResponse<StockDto>.FailResult("Geçersiz veri"));
+                }
+
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<StockDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _stockService.CreateStockAsync(request, userId);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Yeni stok oluşturuldu: UserId={UserId}, StockId={StockId}", userId, result.Data?.Id);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stok ekleme hatası");
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Stok oluşturulurken hata");
+                return StatusCode(500, ApiResponse<StockDto>.FailResult("Stok oluşturulamadı"));
             }
         }
 
-        /// <summary>
-        /// Stok güncelle
-        /// </summary>
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, [FromBody] StockDto dto)
+        public async Task<ActionResult<ApiResponse<StockDto>>> UpdateStock(int id, [FromBody] CreateStockRequest request)
         {
             try
             {
-                var stock = await _stockService.UpdateStock(id, dto, GetUserId());
-                _logger.LogInformation("Stok güncellendi - ID: {Id}", id);
-                return Ok(stock);
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ApiResponse<StockDto>.FailResult("Geçersiz veri"));
+                }
+
+                var userId = GetUserId();
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<StockDto>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _stockService.UpdateStockAsync(id, request, userId);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Stok güncellendi: UserId={UserId}, StockId={StockId}", userId, id);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stok güncelleme hatası - ID: {Id}", id);
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Stok güncellenirken hata: StockId={StockId}", id);
+                return StatusCode(500, ApiResponse<StockDto>.FailResult("Stok güncellenemedi"));
             }
         }
 
-        /// <summary>
-        /// Stok sil
-        /// </summary>
         [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(int id)
+        public async Task<ActionResult<ApiResponse<bool>>> DeleteStock(int id)
         {
             try
             {
-                var result = await _stockService.DeleteStock(id, GetUserId());
-
-                if (!result)
+                var userId = GetUserId();
+                if (userId == 0)
                 {
-                    return NotFound(new { message = "Stok bulunamadı" });
+                    return Unauthorized(ApiResponse<bool>.FailResult("Geçersiz kullanıcı"));
                 }
 
-                _logger.LogInformation("Stok silindi - ID: {Id}", id);
-                return NoContent();
+                var result = await _stockService.DeleteStockAsync(id, userId);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Stok silindi: UserId={UserId}, StockId={StockId}", userId, id);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stok silme hatası - ID: {Id}", id);
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Stok silinirken hata: StockId={StockId}", id);
+                return StatusCode(500, ApiResponse<bool>.FailResult("Stok silinemedi"));
             }
         }
 
-        /// <summary>
-        /// Stok miktarı güncelle
-        /// </summary>
-        [HttpPatch("{id}/quantity")]
-        public async Task<IActionResult> UpdateQuantity(int id, [FromBody] UpdateQuantityRequest request)
+        [HttpGet("low-stock")]
+        public async Task<ActionResult<ApiResponse<List<StockDto>>>> GetLowStockItems([FromQuery] int threshold = 10)
         {
             try
             {
-                var result = await _stockService.UpdateStockQuantity(id, request.Quantity, GetUserId());
-
-                if (!result)
+                var userId = GetUserId();
+                if (userId == 0)
                 {
-                    return NotFound(new { message = "Stok bulunamadı" });
+                    return Unauthorized(ApiResponse<List<StockDto>>.FailResult("Geçersiz kullanıcı"));
                 }
 
-                _logger.LogInformation("Stok miktarı güncellendi - ID: {Id}, Quantity: {Quantity}", id, request.Quantity);
-                return Ok(new { message = "Stok miktarı güncellendi" });
+                var result = await _stockService.GetLowStockItemsAsync(userId, threshold);
+                return Ok(result);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stok miktarı güncelleme hatası - ID: {Id}", id);
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Düşük stokları getir
-        /// </summary>
-        [HttpGet("low-stocks")]
-        public async Task<IActionResult> GetLowStocks()
-        {
-            try
-            {
-                var stocks = await _stockService.GetLowStocks(GetUserId());
-                return Ok(stocks);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Düşük stok listeleme hatası");
-                return BadRequest(new { message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Stok arama
-        /// </summary>
-        [HttpGet("search")]
-        public async Task<IActionResult> Search([FromQuery] string searchTerm)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(searchTerm))
-                {
-                    return BadRequest(new { message = "Arama terimi boş olamaz" });
-                }
-
-                var stocks = await _stockService.SearchStocks(searchTerm, GetUserId());
-                return Ok(stocks);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Stok arama hatası - Term: {SearchTerm}", searchTerm);
-                return BadRequest(new { message = ex.Message });
+                _logger.LogError(ex, "Düşük stok listelenmesinde hata");
+                return StatusCode(500, ApiResponse<List<StockDto>>.FailResult("Düşük stok listelenemedi"));
             }
         }
     }
 
-    public class UpdateQuantityRequest
+    public class CreateStockRequest
     {
-        public decimal Quantity { get; set; }
+        public string ProductName { get; set; } = string.Empty;
+        public string? ProductCode { get; set; }
+        public string? Category { get; set; }
+        public int Quantity { get; set; }
+        public decimal UnitPrice { get; set; }
+        public decimal? CostPrice { get; set; }
+        public string? Unit { get; set; }
+        public int? MinStockLevel { get; set; }
+        public string? Description { get; set; }
     }
 }

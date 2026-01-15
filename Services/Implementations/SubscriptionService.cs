@@ -1,6 +1,10 @@
-﻿using Hesapix.Data;
-using Hesapix.Models.Entities;
+﻿using AutoMapper;
+using Hesapix.Controllers;
+using Hesapix.Data;
+using Hesapix.Models.Common;
+using Hesapix.Models.DTOs.Subs;
 using Hesapix.Models.DTOs.Subscription;
+using Hesapix.Models.Entities;
 using Hesapix.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,130 +13,212 @@ namespace Hesapix.Services.Implementations
     public class SubscriptionService : ISubscriptionService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMapper _mapper;
+        private readonly ILogger<SubscriptionService> _logger;
 
-        public SubscriptionService(ApplicationDbContext context)
+        public SubscriptionService(
+            ApplicationDbContext context,
+            IMapper mapper,
+            ILogger<SubscriptionService> logger)
         {
             _context = context;
+            _mapper = mapper;
+            _logger = logger;
         }
 
-        // Admin tarafından abonelik oluşturma
-        public async Task<SubscriptionDto> CreateSubscription(CreateSubscriptionRequest request, int adminId)
+        public async Task<ApiResponse<SubscriptionDTO>> CreateSubscriptionAsync(CreateSubscriptionRequest request)
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == request.UserId);
-            if (user == null) throw new Exception("Kullanıcı bulunamadı");
+            // Kullanıcı kontrolü
+            var user = await _context.Users.FindAsync(request.UserId);
+            if (user == null)
+            {
+                return ApiResponse<SubscriptionDTO>.FailResult("Kullanıcı bulunamadı");
+            }
+
+            // Mevcut aktif abonelik kontrolü
+            var existingSubscription = await _context.Subscriptions
+                .FirstOrDefaultAsync(s => s.UserId == request.UserId && s.Status == "Active");
+
+            if (existingSubscription != null)
+            {
+                return ApiResponse<SubscriptionDTO>.FailResult("Kullanıcının zaten aktif bir aboneliği var");
+            }
 
             var subscription = new Subscription
             {
                 UserId = request.UserId,
-                Type = request.Type,
-                Platform = request.Platform,
-                StartDate = DateTime.UtcNow,
-                EndDate = request.Type == SubscriptionType.Monthly ? DateTime.UtcNow.AddMonths(1) :
-                          request.Type == SubscriptionType.Yearly ? DateTime.UtcNow.AddYears(1) :
-                          DateTime.MaxValue,
-                Amount = request.Amount,
-                IsActive = true,
-                TransactionId = request.TransactionId,
-                ReceiptData = request.ReceiptData
+                PlanType = request.PlanType,
+                StartDate = request.StartDate ?? DateTime.UtcNow,
+                EndDate = request.EndDate,
+                Status = "Active",
+                Price = request.Price,
+                CreatedAt = DateTime.UtcNow
             };
 
             _context.Subscriptions.Add(subscription);
             await _context.SaveChangesAsync();
 
-            return MapToDto(subscription);
+            var subscriptionDto = _mapper.Map<SubscriptionDTO>(subscription);
+            return ApiResponse<SubscriptionDTO>.SuccessResult(subscriptionDto, "Abonelik oluşturuldu");
         }
 
-        // Kullanıcının aboneliğini kontrol et
-        public async Task<bool> CheckSubscription(int userId)
+        public async Task<ApiResponse<SubscriptionDTO>> UpdateSubscriptionAsync(int subscriptionId, UpdateSubscriptionRequest request)
         {
             var subscription = await _context.Subscriptions
-                .Where(s => s.UserId == userId && s.IsActive)
-                .FirstOrDefaultAsync();
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.Id == subscriptionId);
 
-            if (subscription == null) return false;
-
-            if (subscription.EndDate < DateTime.UtcNow)
+            if (subscription == null)
             {
-                subscription.IsActive = false;
-                await _context.SaveChangesAsync();
-                return false;
+                return ApiResponse<SubscriptionDTO>.FailResult("Abonelik bulunamadı");
             }
 
-            return true;
-        }
-
-        // Kullanıcı aboneliklerini getir
-        public async Task<List<SubscriptionDto>> GetSubscriptions(int userId)
-        {
-            var subscriptions = await _context.Subscriptions
-                .Where(s => s.UserId == userId)
-                .ToListAsync();
-
-            return subscriptions.Select(MapToDto).ToList();
-        }
-
-        // ID ile abonelik getir
-        public async Task<SubscriptionDto> GetSubscriptionById(int id, int userId)
-        {
-            var subscription = await _context.Subscriptions
-                .FirstOrDefaultAsync(s => s.Id == id && s.UserId == userId);
-
-            if (subscription == null) throw new Exception("Abonelik bulunamadı");
-
-            return MapToDto(subscription);
-        }
-
-        // Aboneliği aktif et
-        public async Task<bool> ActivateSubscription(int subscriptionId, int userId)
-        {
-            var subscription = await _context.Subscriptions
-                .FirstOrDefaultAsync(s => s.Id == subscriptionId && s.UserId == userId);
-
-            if (subscription == null) return false;
-
-            subscription.IsActive = true;
-            await _context.SaveChangesAsync();
-            return true;
-        }
-
-        // Aboneliği pasif yap
-        public async Task<bool> DeactivateSubscription(int subscriptionId, int userId)
-        {
-            var subscription = await _context.Subscriptions
-                .FirstOrDefaultAsync(s => s.Id == subscriptionId && s.UserId == userId);
-
-            if (subscription == null) return false;
-
-            subscription.IsActive = false;
-            await _context.SaveChangesAsync();
-            return true;
-        }
-
-        // Admin tüm abonelikleri listeleyebilir
-        public async Task<List<SubscriptionDto>> GetAllSubscriptions()
-        {
-            var subscriptions = await _context.Subscriptions
-                .Include(s => s.User)
-                .ToListAsync();
-
-            return subscriptions.Select(MapToDto).ToList();
-        }
-
-        private SubscriptionDto MapToDto(Subscription s)
-        {
-            return new SubscriptionDto
+            if (!string.IsNullOrEmpty(request.PlanType))
             {
-                Id = s.Id,
-                UserId = s.UserId,
-                UserEmail = s.User?.Email,
-                Type = s.Type,
-                Platform = s.Platform,
-                StartDate = s.StartDate,
-                EndDate = s.EndDate,
-                IsActive = s.IsActive,
-                Amount = s.Amount,
-                TransactionId = s.TransactionId
+                subscription.PlanType = request.PlanType;
+            }
+
+            if (request.EndDate.HasValue)
+            {
+                subscription.EndDate = request.EndDate.Value;
+            }
+
+            if (!string.IsNullOrEmpty(request.Status))
+            {
+                subscription.Status = request.Status;
+            }
+
+            if (request.Price.HasValue)
+            {
+                subscription.Price = request.Price.Value;
+            }
+
+            subscription.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            var subscriptionDto = _mapper.Map<SubscriptionDTO>(subscription);
+            return ApiResponse<SubscriptionDTO>.SuccessResult(subscriptionDto, "Abonelik güncellendi");
+        }
+
+        public async Task<ApiResponse<bool>> DeleteSubscriptionAsync(int subscriptionId)
+        {
+            var subscription = await _context.Subscriptions.FindAsync(subscriptionId);
+
+            if (subscription == null)
+            {
+                return ApiResponse<bool>.FailResult("Abonelik bulunamadı");
+            }
+
+            _context.Subscriptions.Remove(subscription);
+            await _context.SaveChangesAsync();
+
+            return ApiResponse<bool>.SuccessResult(true, "Abonelik silindi");
+        }
+
+        public async Task<ApiResponse<List<SubscriptionDTO>>> GetAllSubscriptionsAsync(int page, int pageSize, string? status)
+        {
+            var query = _context.Subscriptions
+                .Include(s => s.User)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                query = query.Where(s => s.Status == status);
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var subscriptions = await query
+                .OrderByDescending(s => s.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            var subscriptionDtos = _mapper.Map<List<SubscriptionDTO>>(subscriptions);
+
+            return ApiResponse<List<SubscriptionDTO>>.SuccessResult(subscriptionDtos, $"Toplam {totalCount} abonelik bulundu");
+        }
+
+        public async Task<ApiResponse<SubscriptionDTO>> GetSubscriptionByIdAsync(int subscriptionId)
+        {
+            var subscription = await _context.Subscriptions
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.Id == subscriptionId);
+
+            if (subscription == null)
+            {
+                return ApiResponse<SubscriptionDTO>.FailResult("Abonelik bulunamadı");
+            }
+
+            var subscriptionDto = _mapper.Map<SubscriptionDTO>(subscription);
+            return ApiResponse<SubscriptionDTO>.SuccessResult(subscriptionDto);
+        }
+
+        public async Task<ApiResponse<SubscriptionDTO>> GetUserSubscriptionAsync(int userId)
+        {
+            var subscription = await _context.Subscriptions
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.UserId == userId);
+
+            if (subscription == null)
+            {
+                return ApiResponse<SubscriptionDTO>.FailResult("Abonelik bulunamadı");
+            }
+
+            var subscriptionDto = _mapper.Map<SubscriptionDTO>(subscription);
+            return ApiResponse<SubscriptionDTO>.SuccessResult(subscriptionDto);
+        }
+
+        public async Task<ApiResponse<AdminStatisticsDto>> GetAdminStatisticsAsync()
+        {
+            var totalUsers = await _context.Users.CountAsync();
+            var activeSubscriptions = await _context.Subscriptions.CountAsync(s => s.Status == "Active");
+            var expiredSubscriptions = await _context.Subscriptions.CountAsync(s => s.Status == "Expired");
+            var cancelledSubscriptions = await _context.Subscriptions.CountAsync(s => s.Status == "Cancelled");
+            var totalRevenue = await _context.Subscriptions
+                .Where(s => s.Status == "Active")
+                .SumAsync(s => s.Price);
+
+            var subscriptionsByPlan = await _context.Subscriptions
+                .Where(s => s.Status == "Active")
+                .GroupBy(s => s.PlanType)
+                .Select(g => new { PlanType = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.PlanType, x => x.Count);
+
+            var statistics = new AdminStatisticsDto
+            {
+                TotalUsers = totalUsers,
+                ActiveSubscriptions = activeSubscriptions,
+                ExpiredSubscriptions = expiredSubscriptions,
+                CancelledSubscriptions = cancelledSubscriptions,
+                TotalRevenue = totalRevenue,
+                SubscriptionsByPlan = subscriptionsByPlan
             };
+
+            return ApiResponse<AdminStatisticsDto>.SuccessResult(statistics);
+        }
+
+        public async Task<ApiResponse<bool>> CheckAndUpdateExpiredSubscriptionsAsync()
+        {
+            var expiredSubscriptions = await _context.Subscriptions
+                .Where(s => s.Status == "Active" &&
+                           s.EndDate != null &&
+                           s.EndDate < DateTime.UtcNow)
+                .ToListAsync();
+
+            foreach (var subscription in expiredSubscriptions)
+            {
+                subscription.Status = "Expired";
+                subscription.UpdatedAt = DateTime.UtcNow;
+            }
+
+            if (expiredSubscriptions.Any())
+            {
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("{Count} abonelik süresi doldu ve güncellendi", expiredSubscriptions.Count);
+            }
+
+            return ApiResponse<bool>.SuccessResult(true, $"{expiredSubscriptions.Count} abonelik güncellendi");
         }
     }
 }

@@ -1,14 +1,15 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+﻿using Hesapix.Models.Common;
 using Hesapix.Models.DTOs.Auth;
-using Hesapix.Models.Common;
 using Hesapix.Services.Interfaces;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Hesapix.Controllers
 {
     [ApiController]
-    [Route("api/v1/[controller]")]
+    [Route("api/[controller]")]
+    [EnableRateLimiting("fixed")]
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
@@ -20,189 +21,125 @@ namespace Hesapix.Controllers
             _logger = logger;
         }
 
-        /// <summary>
-        /// Yeni kullanıcı kaydı
-        /// </summary>
-        /// <param name="request">Kayıt bilgileri</param>
-        /// <returns>JWT token ve kullanıcı bilgileri</returns>
         [HttpPost("register")]
-        [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+        [AllowAnonymous]
+        public async Task<ActionResult<ApiResponse<AuthResponse>>> Register([FromBody] RegisterRequest request)
         {
-            var response = await _authService.Register(request);
-            _logger.LogInformation("Yeni kullanıcı kaydı yapıldı: {Email}", request.Email);
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ApiResponse<AuthResponse>.FailResult("Geçersiz veri"));
+                }
 
-            return Ok(ApiResponse<AuthResponse>.SuccessResponse(
-                response,
-                "Kayıt başarılı. Email adresinizi doğrulamayı unutmayın."));
+                var result = await _authService.RegisterAsync(request);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Yeni kullanıcı kaydedildi: {Email}", request.Email);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Kayıt sırasında hata");
+                return StatusCode(500, ApiResponse<AuthResponse>.FailResult("Kayıt işlemi başarısız"));
+            }
         }
 
-        /// <summary>
-        /// Kullanıcı girişi
-        /// </summary>
-        /// <param name="request">Giriş bilgileri</param>
-        /// <returns>JWT token ve kullanıcı bilgileri</returns>
         [HttpPost("login")]
-        [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-        public async Task<IActionResult> Login([FromBody] LoginRequest request)
+        [AllowAnonymous]
+        public async Task<ActionResult<ApiResponse<AuthResponse>>> Login([FromBody] LoginRequest request)
         {
-            var response = await _authService.Login(request);
-            _logger.LogInformation("Kullanıcı giriş yaptı: {Email}", request.Email);
-
-            return Ok(ApiResponse<AuthResponse>.SuccessResponse(response, "Giriş başarılı"));
-        }
-
-        /// <summary>
-        /// Abonelik durumu kontrolü
-        /// </summary>
-        /// <returns>Abonelik durumu</returns>
-        [Authorize]
-        [HttpGet("check-subscription")]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> CheckSubscription()
-        {
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-            var hasSubscription = await _authService.CheckSubscription(userId);
-
-            return Ok(ApiResponse<object>.SuccessResponse(
-                new { hasActiveSubscription = hasSubscription },
-                "Abonelik durumu kontrol edildi"));
-        }
-
-        /// <summary>
-        /// Mevcut kullanıcı bilgileri
-        /// </summary>
-        /// <returns>Kullanıcı bilgileri</returns>
-        [Authorize]
-        [HttpGet("me")]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        public IActionResult GetCurrentUser()
-        {
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var email = User.FindFirst(ClaimTypes.Email)?.Value;
-            var name = User.FindFirst(ClaimTypes.Name)?.Value;
-            var emailVerified = bool.Parse(User.FindFirst("EmailVerified")?.Value ?? "false");
-
-            var userData = new
+            try
             {
-                id = userId,
-                email = email,
-                fullName = name,
-                emailVerified = emailVerified
-            };
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ApiResponse<AuthResponse>.FailResult("Geçersiz veri"));
+                }
 
-            return Ok(ApiResponse<object>.SuccessResponse(userData, "Kullanıcı bilgileri alındı"));
-        }
+                var result = await _authService.LoginAsync(request);
 
-        /// <summary>
-        /// Email doğrulama
-        /// </summary>
-        /// <param name="request">Email ve doğrulama kodu</param>
-        /// <returns>Doğrulama sonucu</returns>
-        [HttpPost("verify-email")]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequest request)
-        {
-            var result = await _authService.VerifyEmail(request.Email, request.VerificationCode);
+                if (!result.Success)
+                {
+                    return Unauthorized(result);
+                }
 
-            if (result)
-            {
-                _logger.LogInformation("Email doğrulandı: {Email}", request.Email);
-                return Ok(ApiResponse<object>.SuccessResponse(null, "Email başarıyla doğrulandı"));
+                _logger.LogInformation("Kullanıcı giriş yaptı: {Email}", request.Email);
+                return Ok(result);
             }
-
-            return BadRequest(ApiResponse<object>.ErrorResponse("Doğrulama başarısız. Kod geçersiz veya süresi dolmuş."));
-        }
-
-        /// <summary>
-        /// Şifre sıfırlama talebi
-        /// </summary>
-        /// <param name="request">Email adresi</param>
-        /// <returns>İşlem sonucu</returns>
-        [HttpPost("request-password-reset")]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> RequestPasswordReset([FromBody] RequestPasswordResetRequest request)
-        {
-            await _authService.RequestPasswordReset(request.Email);
-
-            // Güvenlik: Her zaman başarılı dön
-            return Ok(ApiResponse<object>.SuccessResponse(
-                null,
-                "Eğer email adresi sistemde kayıtlıysa, şifre sıfırlama linki gönderildi."));
-        }
-
-        /// <summary>
-        /// Şifre sıfırlama
-        /// </summary>
-        /// <param name="request">Şifre sıfırlama bilgileri</param>
-        /// <returns>İşlem sonucu</returns>
-        [HttpPost("reset-password")]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
-        {
-            var result = await _authService.ResetPassword(
-                request.Email,
-                request.NewPassword,
-                request.ResetToken);
-
-            if (result)
+            catch (Exception ex)
             {
-                _logger.LogInformation("Şifre sıfırlandı: {Email}", request.Email);
-                return Ok(ApiResponse<object>.SuccessResponse(null, "Şifre başarıyla sıfırlandı"));
+                _logger.LogError(ex, "Giriş sırasında hata");
+                return StatusCode(500, ApiResponse<AuthResponse>.FailResult("Giriş işlemi başarısız"));
             }
-
-            return BadRequest(ApiResponse<object>.ErrorResponse("Şifre sıfırlama başarısız. Token geçersiz veya süresi dolmuş."));
         }
 
-        /// <summary>
-        /// Token yenileme (gelecekte eklenebilir)
-        /// </summary>
-        [Authorize]
         [HttpPost("refresh-token")]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> RefreshToken()
-        {
-            // Refresh token implementasyonu
-            await Task.CompletedTask;
-            return Ok(ApiResponse<object>.SuccessResponse(null, "Token yenilendi"));
-        }
-
-        /// <summary>
-        /// Çıkış (client-side token silme için)
-        /// </summary>
         [Authorize]
-        [HttpPost("logout")]
-        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-        public IActionResult Logout()
+        public async Task<ActionResult<ApiResponse<AuthResponse>>> RefreshToken()
         {
-            var email = User.FindFirst(ClaimTypes.Email)?.Value;
-            _logger.LogInformation("Kullanıcı çıkış yaptı: {Email}", email);
+            try
+            {
+                var userId = int.Parse(User.FindFirst("UserId")?.Value ?? "0");
 
-            return Ok(ApiResponse<object>.SuccessResponse(null, "Başarıyla çıkış yapıldı"));
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<AuthResponse>.FailResult("Geçersiz token"));
+                }
+
+                var result = await _authService.RefreshTokenAsync(userId);
+
+                if (!result.Success)
+                {
+                    return Unauthorized(result);
+                }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Token yenileme sırasında hata");
+                return StatusCode(500, ApiResponse<AuthResponse>.FailResult("Token yenileme başarısız"));
+            }
+        }
+
+        [HttpPost("change-password")]
+        [Authorize]
+        public async Task<ActionResult<ApiResponse<bool>>> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst("UserId")?.Value ?? "0");
+
+                if (userId == 0)
+                {
+                    return Unauthorized(ApiResponse<bool>.FailResult("Geçersiz kullanıcı"));
+                }
+
+                var result = await _authService.ChangePasswordAsync(userId, request.OldPassword, request.NewPassword);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("Kullanıcı şifresini değiştirdi: UserId={UserId}", userId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Şifre değiştirme sırasında hata");
+                return StatusCode(500, ApiResponse<bool>.FailResult("Şifre değiştirme başarısız"));
+            }
         }
     }
 
-    // Request Models
-    public class VerifyEmailRequest
+    public class ChangePasswordRequest
     {
-        public string Email { get; set; } = string.Empty;
-        public string VerificationCode { get; set; } = string.Empty;
-    }
-
-    public class RequestPasswordResetRequest
-    {
-        public string Email { get; set; } = string.Empty;
-    }
-
-    public class ResetPasswordRequest
-    {
-        public string Email { get; set; } = string.Empty;
+        public string OldPassword { get; set; } = string.Empty;
         public string NewPassword { get; set; } = string.Empty;
-        public string ResetToken { get; set; } = string.Empty;
     }
 }

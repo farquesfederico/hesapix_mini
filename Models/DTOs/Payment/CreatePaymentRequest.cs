@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using Hesapix.Models.Entities;
-
+using Hesapix.Models.Enums; 
 namespace Hesapix.Models.DTOs.Payment
 {
     public class CreatePaymentRequest
