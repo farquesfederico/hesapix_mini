@@ -7,11 +7,30 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Hesapix.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class AddWillCancelAtPeriodEnd : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.CreateTable(
+                name: "subscriptionsettings",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    trial_enabled = table.Column<bool>(type: "boolean", nullable: false),
+                    trial_duration_days = table.Column<int>(type: "integer", nullable: false),
+                    monthly_price = table.Column<decimal>(type: "numeric", nullable: false),
+                    yearly_price = table.Column<decimal>(type: "numeric", nullable: false),
+                    campaign_enabled = table.Column<bool>(type: "boolean", nullable: false),
+                    campaign_discount_percent = table.Column<decimal>(type: "numeric", nullable: false),
+                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("p_k_subscriptionsettings", x => x.id);
+                });
+
             migrationBuilder.CreateTable(
                 name: "users",
                 columns: table => new
@@ -162,10 +181,11 @@ namespace Hesapix.Migrations
                     final_price = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     is_trial = table.Column<bool>(type: "boolean", nullable: false),
                     auto_renew = table.Column<bool>(type: "boolean", nullable: false),
-                    payment_gateway = table.Column<string>(type: "text", nullable: true),
+                    payment_gateway = table.Column<int>(type: "integer", nullable: true),
                     payment_transaction_id = table.Column<string>(type: "text", nullable: true),
                     payment_token = table.Column<string>(type: "text", nullable: true),
                     payment_date = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    will_cancel_at_period_end = table.Column<bool>(type: "boolean", nullable: false),
                     payment_retry_count = table.Column<int>(type: "integer", nullable: false),
                     last_payment_retry_date = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
@@ -271,6 +291,9 @@ namespace Hesapix.Migrations
 
             migrationBuilder.DropTable(
                 name: "subscriptions");
+
+            migrationBuilder.DropTable(
+                name: "subscriptionsettings");
 
             migrationBuilder.DropTable(
                 name: "sales");

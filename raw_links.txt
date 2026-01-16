@@ -13,21 +13,25 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controller
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/ReportController.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/SaleController.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/StokController.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Controllers/SubscriptionController.cs
+
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Data/ApplicationDbContext.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Mapping/MappingProfile.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/MiddleWare/GlobalExceptionMiddleware.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/MiddleWare/SubscriptionMiddleware.cs
 
-https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Migrations/20260113182201_InitialCreate.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Migrations/20260116111204_AddWillCancelAtPeriodEnd.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Migrations/ApplicationDbContextModelSnapshot.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Common/ApiResponse.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Common/PagedResult.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Auth/AuthResponse.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Auth/LoginRequest.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Auth/RegisterRequest.cs
-
-https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Data/ApplicationDbContext.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Auth/RefreshTokenRequest.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Payment/CreatePaymentRequest.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Payment/PaymentDto.cs
@@ -43,17 +47,27 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTO
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/Subs/SubscriptionDTO.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/UserDto.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/DTOs/UpdateSubscriptionSettingsDto.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/Payment.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/Sale.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/SaleItem.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/Stok.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/Subscription.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/SubscriptionSettings.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Entities/User.cs
+
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Enums/PaymentGateway.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Enums/PaymentMethods.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Enums/PaymentStatus.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Enums/PaymentType.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Enums/SubscriptionStatus.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Models/Enums/UserRole.cs
 
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IAuthService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IEmailService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IExcelService.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IMobilePaymentService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IPaymentService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IPdfService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Interfaces/IReportService.cs
@@ -64,6 +78,7 @@ https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/I
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/AuthService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/EmailService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/ExcelService.cs
+https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/MobilePaymentService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/PaymentService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/PdfService.cs
 https://raw.githubusercontent.com/farquesfederico/Hesapix_mini/master/Services/Implementations/ReportService.cs

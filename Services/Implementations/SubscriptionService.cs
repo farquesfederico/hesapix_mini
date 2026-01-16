@@ -4,9 +4,7 @@ using Hesapix.Models.DTOs.Subscription;
 using Hesapix.Models.Entities;
 using Hesapix.Models.Enums;
 using Hesapix.Services.Interfaces;
-using Iyzipay;
-using Iyzipay.Model;
-using Iyzipay.Request;
+using Iyzipay.Model.V2.Subscription;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Serilog;
@@ -19,212 +17,310 @@ public class SubscriptionService : ISubscriptionService
     private readonly IMapper _mapper;
     private readonly IConfiguration _configuration;
     private readonly IEmailService _emailService;
+    private readonly IMobilePaymentService _mobilePaymentService;
 
     public SubscriptionService(
         ApplicationDbContext context,
         IMapper mapper,
         IConfiguration configuration,
-        IEmailService emailService)
+        IEmailService emailService,
+        IMobilePaymentService mobilePaymentService)
     {
         _context = context;
         _mapper = mapper;
         _configuration = configuration;
         _emailService = emailService;
+        _mobilePaymentService = mobilePaymentService;
     }
 
-    public async Task<(bool Success, string Message, object? Data)> CreateSubscriptionAsync(int userId, CreateSubscriptionRequest request)
+    // -------------------------------------------------
+    // PAYMENT INIT
+    // -------------------------------------------------
+    public async Task<(bool Success, string Message, object? Data)>
+        InitiatePaymentAsync(int userId, CreateSubscriptionRequest request)
     {
         var user = await _context.Users.FindAsync(userId);
         if (user == null)
-        {
             return (false, "Kullanıcı bulunamadı", null);
-        }
 
-        // Trial kontrolü
-        var settings = _configuration.GetSection("SubscriptionSettings");
-        var trialEnabled = settings.GetValue<bool>("TrialEnabled");
-        var hasTrialUsed = await _context.Subscriptions.AnyAsync(s => s.UserId == userId && s.IsTrial);
+        if (await HasActiveSubscriptionAsync(userId))
+            return (false, "Zaten aktif aboneliğiniz var", null);
 
-        bool isTrial = trialEnabled && !hasTrialUsed;
+        var settings = await _context.SubscriptionSettings.FirstOrDefaultAsync();
+        if (settings == null)
+            return (false, "Abonelik ayarları tanımlı değil", null);
 
-        // Fiyat hesaplama
-        decimal price = await GetSubscriptionPriceAsync(request);
-        decimal finalPrice = isTrial ? 0 : price;
-
-        if (isTrial)
+        if (settings.TrialEnabled)
         {
-            // Trial subscription oluştur
-            var trialDays = settings.GetValue<int>("TrialDurationDays");
-            var subscription = new Subscription
+            var hasTrial = await _context.Subscriptions
+                .AnyAsync(x => x.UserId == userId && x.IsTrial);
+
+            if (!hasTrial)
             {
-                UserId = userId,
-                PlanType = request.PlanType,
-                Status = SubscriptionStatus.Trial,
-                StartDate = DateTime.UtcNow,
-                EndDate = DateTime.UtcNow.AddDays(trialDays),
-                Price = price,
-                FinalPrice = 0,
-                IsTrial = true,
-                AutoRenew = true,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.Subscriptions.Add(subscription);
-            await _context.SaveChangesAsync();
-
-            return (true, $"Ücretsiz deneme aboneliğiniz başladı. {trialDays} gün geçerlidir.",
-                _mapper.Map<SubscriptionDto>(subscription));
-        }
-
-        // Ödeme gateway'e göre işlem
-        if (request.PaymentGateway == "Iyzico")
-        {
-            var paymentResult = await ProcessIyzicoPaymentAsync(user, request, finalPrice);
-            if (!paymentResult.Success)
-            {
-                return (false, paymentResult.Message, null);
+                var trialResult = await ActivateTrialAsync(userId);
+                return (trialResult.Success, trialResult.Message, null);
             }
-
-            var subscription = new Subscription
-            {
-                UserId = userId,
-                PlanType = request.PlanType,
-                Status = SubscriptionStatus.Active,
-                StartDate = DateTime.UtcNow,
-                EndDate = request.PlanType == SubscriptionPlanType.Monthly
-                    ? DateTime.UtcNow.AddMonths(1)
-                    : DateTime.UtcNow.AddYears(1),
-                Price = price,
-                FinalPrice = finalPrice,
-                IsTrial = false,
-                AutoRenew = true,
-                PaymentGateway = "Iyzico",
-                PaymentTransactionId = paymentResult.TransactionId,
-                PaymentDate = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.Subscriptions.Add(subscription);
-            await _context.SaveChangesAsync();
-
-            await _emailService.SendSubscriptionConfirmationEmailAsync(
-                user.Email, user.CompanyName, subscription.EndDate);
-
-            return (true, "Aboneliğiniz başarıyla oluşturuldu", _mapper.Map<SubscriptionDto>(subscription));
         }
 
-        return (false, "Desteklenmeyen ödeme yöntemi", null);
+        var price = CalculatePrice(request, settings);
+
+        return request.PaymentGateway switch
+        {
+            PaymentGateway.Iyzico =>
+                (true, "Ödeme başlatıldı",
+                    new { PaymentUrl = $"https://iyzico.fake/pay?amount={price}", Amount = price }),
+
+            PaymentGateway.GooglePlay =>
+                await ProcessGooglePlayPurchaseAsync(userId, request),
+
+            PaymentGateway.AppStore =>
+                await ProcessAppStorePurchaseAsync(userId, request),
+
+            _ => (false, "Desteklenmeyen ödeme yöntemi", null)
+        };
     }
 
+    // -------------------------------------------------
+    // COMPLETE PAYMENT
+    // -------------------------------------------------
+    public async Task<(bool Success, string Message)>
+        CompletePaymentAsync(int userId, CreateSubscriptionRequest request, string transactionId)
+    {
+        var settings = await _context.SubscriptionSettings.FirstOrDefaultAsync();
+        if (settings == null)
+            return (false, "Abonelik ayarları bulunamadı");
+
+        var price = CalculatePrice(request, settings);
+
+        var subscription = new Hesapix.Models.Entities.Subscription
+        {
+            UserId = userId,
+            PlanType = request.PlanType,
+            Status = SubscriptionStatus.Active,
+            StartDate = DateTime.UtcNow,
+            EndDate = request.PlanType == SubscriptionPlanType.Monthly
+                ? DateTime.UtcNow.AddMonths(1)
+                : DateTime.UtcNow.AddYears(1),
+            Price = price,
+            FinalPrice = price,
+            IsTrial = false,
+            AutoRenew = true,
+            PaymentGateway = request.PaymentGateway,
+            PaymentTransactionId = transactionId,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Subscriptions.Add(subscription);
+        await _context.SaveChangesAsync();
+
+        return (true, "Abonelik başarıyla oluşturuldu");
+    }
+
+    // -------------------------------------------------
+    // TRIAL
+    // -------------------------------------------------
+    public async Task<(bool Success, string Message)> ActivateTrialAsync(int userId)
+    {
+        var settings = await _context.SubscriptionSettings.FirstOrDefaultAsync();
+        if (settings == null || !settings.TrialEnabled)
+            return (false, "Trial aktif değil");
+
+        var used = await _context.Subscriptions
+            .AnyAsync(x => x.UserId == userId && x.IsTrial);
+
+        if (used)
+            return (false, "Trial daha önce kullanılmış");
+
+        var subscription = new Hesapix.Models.Entities.Subscription
+        {
+            UserId = userId,
+            PlanType = SubscriptionPlanType.Monthly,
+            Status = SubscriptionStatus.Trial,
+            StartDate = DateTime.UtcNow,
+            EndDate = DateTime.UtcNow.AddDays(settings.TrialDurationDays),
+            IsTrial = true,
+            AutoRenew = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Subscriptions.Add(subscription);
+        await _context.SaveChangesAsync();
+
+        return (true, $"Trial başladı ({settings.TrialDurationDays} gün)");
+    }
+
+    // -------------------------------------------------
+    // READ
+    // -------------------------------------------------
     public async Task<SubscriptionDto?> GetActiveSubscriptionAsync(int userId)
     {
-        var subscription = await _context.Subscriptions
-            .Where(s => s.UserId == userId
-                && (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial)
-                && s.EndDate > DateTime.UtcNow)
-            .OrderByDescending(s => s.CreatedAt)
+        var sub = await _context.Subscriptions
+            .Where(x => x.UserId == userId &&
+                (x.Status == SubscriptionStatus.Active || x.Status == SubscriptionStatus.Trial) &&
+                x.EndDate > DateTime.UtcNow)
+            .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync();
 
-        return subscription != null ? _mapper.Map<SubscriptionDto>(subscription) : null;
+        return sub == null ? null : _mapper.Map<SubscriptionDto>(sub);
     }
 
     public async Task<bool> HasActiveSubscriptionAsync(int userId)
     {
-        return await _context.Subscriptions
-            .AnyAsync(s => s.UserId == userId
-                && (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial)
-                && s.EndDate > DateTime.UtcNow);
+        return await _context.Subscriptions.AnyAsync(x =>
+            x.UserId == userId &&
+            (x.Status == SubscriptionStatus.Active || x.Status == SubscriptionStatus.Trial) &&
+            x.EndDate > DateTime.UtcNow);
     }
 
+    // -------------------------------------------------
+    // CANCEL / REACTIVATE
+    // -------------------------------------------------
     public async Task<(bool Success, string Message)> CancelSubscriptionAsync(int userId)
     {
-        var subscription = await _context.Subscriptions
-            .Where(s => s.UserId == userId
-                && (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial))
-            .OrderByDescending(s => s.CreatedAt)
+        var sub = await _context.Subscriptions
+            .Where(x => x.UserId == userId &&
+                (x.Status == SubscriptionStatus.Active || x.Status == SubscriptionStatus.Trial))
+            .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync();
 
-        if (subscription == null)
-        {
+        if (sub == null)
             return (false, "Aktif abonelik bulunamadı");
-        }
 
-        subscription.Status = SubscriptionStatus.Cancelled;
-        subscription.AutoRenew = false;
-        subscription.CancelledAt = DateTime.UtcNow;
-        subscription.UpdatedAt = DateTime.UtcNow;
+        sub.WillCancelAtPeriodEnd = true;
+        sub.AutoRenew = false;
+        sub.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
-
-        return (true, "Aboneliğiniz iptal edildi");
+        return (true, "Abonelik iptal edildi");
     }
 
-    public async Task<(bool Success, string Message)> HandleIyzicoWebhookAsync(string payload)
+    public async Task<(bool Success, string Message)> ReactivateSubscriptionAsync(int userId)
     {
-        // Iyzico webhook işlemleri
-        Log.Information("Iyzico webhook received: {Payload}", payload);
-        // TODO: Implement webhook handling
-        return (true, "Webhook processed");
+        var sub = await _context.Subscriptions
+            .Where(x => x.UserId == userId && x.WillCancelAtPeriodEnd)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (sub == null)
+            return (false, "İptal edilmiş abonelik yok");
+
+        sub.WillCancelAtPeriodEnd = false;
+        sub.AutoRenew = true;
+        sub.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return (true, "Abonelik yeniden aktif edildi");
     }
 
+    // -------------------------------------------------
+    // PLANS
+    // -------------------------------------------------
+    public async Task<object> GetAvailablePlansAsync()
+    {
+        var s = await _context.SubscriptionSettings.FirstOrDefaultAsync();
+        if (s == null) return new { };
+
+        var plans = new List<object>();
+
+        // 🎁 Trial Plan
+        if (s.TrialEnabled)
+        {
+            plans.Add(new
+            {
+                Type = "Deneme Sürümü",
+                Price = "Ücretsiz",
+                DurationDays = s.TrialDurationDays
+            });
+        }
+
+        // 💳 Aylık Plan
+        plans.Add(new
+        {
+            Type = "Aylık",
+            Price = s.MonthlyPrice,
+            Duration = "1 Ay"
+        });
+
+        // 💳 Yıllık Plan
+        plans.Add(new
+        {
+            Type = "Yıllık",
+            Price = s.YearlyPrice,
+            Duration = "1 Yıl"
+        });
+
+        return new
+        {
+            Plans = plans,
+
+            Trial = new
+            {
+                Enabled = s.TrialEnabled,
+                DurationDays = s.TrialDurationDays
+            },
+
+            Campaign = new
+            {
+                Enabled = s.CampaignEnabled,
+                DiscountPercent = s.CampaignDiscountPercent
+            }
+        };
+    }
+
+    // -------------------------------------------------
+    // EXPIRE
+    // -------------------------------------------------
     public async Task ProcessExpiredSubscriptionsAsync()
     {
-        var expiredSubscriptions = await _context.Subscriptions
-            .Include(s => s.User)
-            .Where(s => (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial)
-                && s.EndDate <= DateTime.UtcNow)
+        var expired = await _context.Subscriptions
+            .Where(x => x.EndDate <= DateTime.UtcNow &&
+                (x.Status == SubscriptionStatus.Active || x.Status == SubscriptionStatus.Trial))
             .ToListAsync();
 
-        foreach (var subscription in expiredSubscriptions)
+        foreach (var s in expired)
         {
-            subscription.Status = SubscriptionStatus.Expired;
-            subscription.UpdatedAt = DateTime.UtcNow;
+            s.Status = s.WillCancelAtPeriodEnd
+                ? SubscriptionStatus.Cancelled
+                : SubscriptionStatus.Expired;
+            s.UpdatedAt = DateTime.UtcNow;
         }
 
         await _context.SaveChangesAsync();
-        Log.Information("Processed {Count} expired subscriptions", expiredSubscriptions.Count);
     }
 
-    public async Task<decimal> GetSubscriptionPriceAsync(CreateSubscriptionRequest request)
+    // -------------------------------------------------
+    // WEBHOOK
+    // -------------------------------------------------
+    public async Task<(bool Success, string Message)> HandleIyzicoWebhookAsync(string payload)
     {
-        var settings = _configuration.GetSection("SubscriptionSettings");
-
-        decimal basePrice = request.PlanType == SubscriptionPlanType.Monthly
-            ? settings.GetValue<decimal>("MonthlyPrice")
-            : settings.GetValue<decimal>("YearlyPrice");
-
-        var campaignEnabled = settings.GetValue<bool>("CampaignEnabled");
-        if (campaignEnabled)
-        {
-            var discount = settings.GetValue<decimal>("CampaignDiscountPercent");
-            basePrice -= basePrice * (discount / 100);
-        }
-
-        return basePrice;
+        Log.Information("Iyzico Webhook: {Payload}", payload);
+        return (true, "Webhook alındı");
     }
 
-    private async Task<(bool Success, string Message, string? TransactionId)> ProcessIyzicoPaymentAsync(
-        User user, CreateSubscriptionRequest request, decimal amount)
+    // -------------------------------------------------
+    // PRIVATE HELPERS
+    // -------------------------------------------------
+    private decimal CalculatePrice(CreateSubscriptionRequest r, SubscriptionSettings s)
     {
-        try
-        {
-            var iyzicoSettings = _configuration.GetSection("IyzicoSettings");
-            var options = new Options
-            {
-                ApiKey = iyzicoSettings["ApiKey"],
-                SecretKey = iyzicoSettings["SecretKey"],
-                BaseUrl = iyzicoSettings["BaseUrl"]
-            };
+        var price = r.PlanType == SubscriptionPlanType.Monthly
+            ? s.MonthlyPrice
+            : s.YearlyPrice;
 
-            // Bu örnek basitleştirilmiş. Gerçek implementasyonda kart bilgileri alınmalı
-            // TODO: Frontend'den kart bilgilerini al ve işle
+        if (s.CampaignEnabled)
+            price -= price * (s.CampaignDiscountPercent / 100);
 
-            return (true, "Ödeme başarılı", Guid.NewGuid().ToString());
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Iyzico payment failed for user {UserId}", user.Id);
-            return (false, "Ödeme işlemi başarısız oldu", null);
-        }
+        return price;
+    }
+
+    private async Task<(bool, string, object?)>
+        ProcessGooglePlayPurchaseAsync(int userId, CreateSubscriptionRequest request)
+    {
+        return (false, "Google Play henüz aktif değil", null);
+    }
+
+    private async Task<(bool, string, object?)>
+        ProcessAppStorePurchaseAsync(int userId, CreateSubscriptionRequest request)
+    {
+        return (false, "App Store henüz aktif değil", null);
     }
 }

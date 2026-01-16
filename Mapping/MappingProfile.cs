@@ -20,8 +20,18 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.DaysRemaining,
                 opt => opt.MapFrom(src => (src.EndDate - DateTime.UtcNow).Days))
             .ForMember(dest => dest.IsActive,
-                opt => opt.MapFrom(src => src.Status == Models.Enums.SubscriptionStatus.Active
-                    && src.EndDate > DateTime.UtcNow));
+                opt => opt.MapFrom(src => (src.Status == Models.Enums.SubscriptionStatus.Active
+                    || src.Status == Models.Enums.SubscriptionStatus.Trial)
+                    && src.EndDate > DateTime.UtcNow))
+            .ForMember(dest => dest.StatusMessage,
+                opt => opt.MapFrom(src =>
+                    src.WillCancelAtPeriodEnd
+                        ? $"Aboneliğiniz {src.EndDate:dd.MM.yyyy} tarihinde sona erecek ve yenilenmeyecek"
+                        : src.Status == Models.Enums.SubscriptionStatus.Active
+                            ? $"Aktif - {src.EndDate:dd.MM.yyyy} tarihinde yenilenecek"
+                            : src.Status == Models.Enums.SubscriptionStatus.Trial
+                                ? $"Deneme sürümü - {src.EndDate:dd.MM.yyyy} tarihinde sona erecek"
+                                : "Aboneliğiniz sona ermiş"));
 
         // Sale Mappings
         CreateMap<Sale, SaleDto>();

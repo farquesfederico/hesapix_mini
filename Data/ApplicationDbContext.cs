@@ -1,4 +1,5 @@
-﻿using Hesapix.Models.Entities;
+﻿using Hesapix.Models.DTOs;
+using Hesapix.Models.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 
@@ -16,6 +17,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<SaleItem> SaleItems { get; set; }
     public DbSet<Payment> Payments { get; set; }
     public DbSet<Stok> Stocks { get; set; }
+    public DbSet<SubscriptionSettings> SubscriptionSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

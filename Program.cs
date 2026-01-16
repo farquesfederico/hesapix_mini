@@ -3,6 +3,7 @@ using FluentValidation.AspNetCore;
 using Hesapix.Data;
 using Hesapix.Mapping;
 using Hesapix.Middleware;
+using Hesapix.Models.Entities;
 using Hesapix.Services.Implementations;
 using Hesapix.Services.Interfaces;
 using Hesapix.Validators;
@@ -10,7 +11,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Org.BouncyCastle.Crypto.Generators;
 using Serilog;
 using System.Text;
 
@@ -82,6 +82,7 @@ builder.Services.AddCors(options =>
 });
 
 // Services Registration
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<ISaleService, SaleService>();
@@ -91,6 +92,7 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<IPdfService, PdfService>();
+builder.Services.AddScoped<IMobilePaymentService, MobilePaymentService>();
 
 // Controllers
 builder.Services.AddControllers()
@@ -204,6 +206,48 @@ using (var scope = app.Services.CreateScope())
             context.Users.Add(admin);
             context.SaveChanges();
             Log.Information("Admin user created: admin@hesapix.com / Admin123!");
+        }
+        if (!context.Users.Any(u => u.Role == Hesapix.Models.Enums.UserRole.User))
+        {
+            Log.Information("Creating default user...");
+            var user = new Hesapix.Models.Entities.User
+            {
+                Email = "user@hesapix.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
+                CompanyName = "Hesapix Admin",
+                Role = Hesapix.Models.Enums.UserRole.User,
+                IsEmailVerified = true,
+                CreatedAt = DateTime.UtcNow,
+                Subscriptions = new List<Subscription>
+                {
+                    new Subscription
+                    {
+                        Status=Hesapix.Models.Enums.SubscriptionStatus.Active,
+                        StartDate=DateTime.UtcNow,
+                        EndDate=DateTime.MaxValue,
+                    }
+                }
+            };
+            context.Users.Add(user);
+            context.SaveChanges();
+            Log.Information(" user created: user@hesapix.com / Admin123!");
+        }
+
+        if (!context.SubscriptionSettings.Any())
+        {
+            context.SubscriptionSettings.Add(new SubscriptionSettings
+            {
+                TrialEnabled = true,
+                TrialDurationDays = 14,
+                MonthlyPrice = 299,
+                YearlyPrice = 2990,
+                CampaignEnabled = false,
+                CampaignDiscountPercent = 0,
+                UpdatedAt = DateTime.UtcNow
+            });
+
+            context.SaveChanges();
+            Log.Information("Default subscription settings created");
         }
 
         Log.Information("Database initialization completed successfully");

@@ -19,19 +19,7 @@ public class SubscriptionController : ControllerBase
         _subscriptionService = subscriptionService;
     }
 
-    [HttpPost("create")]
-    public async Task<IActionResult> CreateSubscription([FromBody] CreateSubscriptionRequest request)
-    {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var result = await _subscriptionService.CreateSubscriptionAsync(userId, request);
-
-        if (!result.Success)
-        {
-            return BadRequest(ApiResponse<object>.ErrorResponse(result.Message));
-        }
-
-        return Ok(ApiResponse<object>.SuccessResponse(result.Data!, result.Message));
-    }
+    // ❌ CREATE ENDPOINT KALDIRILDI - Sadece ödeme sonrası webhook ile oluşturulabilir
 
     [HttpGet("status")]
     public async Task<IActionResult> GetSubscriptionStatus()
@@ -61,11 +49,40 @@ public class SubscriptionController : ControllerBase
         return Ok(ApiResponse.SuccessResponse(result.Message));
     }
 
-    [HttpGet("price")]
-    public async Task<IActionResult> GetPrice([FromQuery] CreateSubscriptionRequest request)
+    [HttpPost("reactivate")]
+    public async Task<IActionResult> ReactivateSubscription()
     {
-        var price = await _subscriptionService.GetSubscriptionPriceAsync(request);
-        return Ok(ApiResponse<decimal>.SuccessResponse(price));
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _subscriptionService.ReactivateSubscriptionAsync(userId);
+
+        if (!result.Success)
+        {
+            return BadRequest(ApiResponse.ErrorResponse(result.Message));
+        }
+
+        return Ok(ApiResponse.SuccessResponse(result.Message));
+    }
+
+    [HttpGet("plans")]
+    public async Task<IActionResult> GetPlans()
+    {
+        var plans = await _subscriptionService.GetAvailablePlansAsync();
+        return Ok(ApiResponse<object>.SuccessResponse(plans));
+    }
+
+    [HttpPost("initiate-payment")]
+    public async Task<IActionResult> InitiatePayment([FromBody] CreateSubscriptionRequest request)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _subscriptionService.InitiatePaymentAsync(userId, request);
+
+        if (!result.Success)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(result.Message));
+        }
+
+        // Ödeme sayfasına yönlendirilecek URL döner
+        return Ok(ApiResponse<object>.SuccessResponse(result.Data!, "Ödeme başlatıldı"));
     }
 
     [HttpPost("webhook/iyzico")]
@@ -74,5 +91,20 @@ public class SubscriptionController : ControllerBase
     {
         var result = await _subscriptionService.HandleIyzicoWebhookAsync(payload);
         return Ok(result);
+    }
+
+    // Admin için trial activation
+    [HttpPost("activate-trial/{userId}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ActivateTrial(int userId)
+    {
+        var result = await _subscriptionService.ActivateTrialAsync(userId);
+
+        if (!result.Success)
+        {
+            return BadRequest(ApiResponse.ErrorResponse(result.Message));
+        }
+
+        return Ok(ApiResponse.SuccessResponse(result.Message));
     }
 }

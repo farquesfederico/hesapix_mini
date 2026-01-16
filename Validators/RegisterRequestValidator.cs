@@ -18,7 +18,7 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
             .Matches(@"[A-Z]").WithMessage("Şifre en az bir büyük harf içermelidir")
             .Matches(@"[a-z]").WithMessage("Şifre en az bir küçük harf içermelidir")
             .Matches(@"[0-9]").WithMessage("Şifre en az bir rakam içermelidir")
-            .Matches(@"[\!\@\#\$\%\^\&\*\(\)\_\+\=\-\[\]\{\}\;\:\'\,\.\<\>\?\/]")
+            .Matches(@"[!@#$%^&*()_+=\-\[\]{};:'"",.<>?/]")
             .WithMessage("Şifre en az bir özel karakter içermelidir");
 
         RuleFor(x => x.ConfirmPassword)

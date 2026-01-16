@@ -11,8 +11,11 @@ public class SubscriptionDto
     public DateTime EndDate { get; set; }
     public bool IsTrial { get; set; }
     public bool AutoRenew { get; set; }
+    public bool WillCancelAtPeriodEnd { get; set; } // ← YENİ!
+    public DateTime? CancelledAt { get; set; } // ← YENİ!
     public decimal Price { get; set; }
     public decimal FinalPrice { get; set; }
     public int DaysRemaining { get; set; }
     public bool IsActive { get; set; }
+    public string StatusMessage { get; set; } = string.Empty; // ← YENİ! Kullanıcıya mesaj
 }

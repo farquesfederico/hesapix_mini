@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Hesapix.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260115221738_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260116111204_AddWillCancelAtPeriodEnd")]
+    partial class AddWillCancelAtPeriodEnd
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -394,8 +394,8 @@ namespace Hesapix.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("payment_date");
 
-                    b.Property<string>("PaymentGateway")
-                        .HasColumnType("text")
+                    b.Property<int?>("PaymentGateway")
+                        .HasColumnType("integer")
                         .HasColumnName("payment_gateway");
 
                     b.Property<int>("PaymentRetryCount")
@@ -435,6 +435,10 @@ namespace Hesapix.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("user_id");
 
+                    b.Property<bool>("WillCancelAtPeriodEnd")
+                        .HasColumnType("boolean")
+                        .HasColumnName("will_cancel_at_period_end");
+
                     b.HasKey("Id")
                         .HasName("p_k_subscriptions");
 
@@ -442,6 +446,49 @@ namespace Hesapix.Migrations
                         .HasDatabaseName("i_x_subscriptions_user_id");
 
                     b.ToTable("subscriptions");
+                });
+
+            modelBuilder.Entity("Hesapix.Models.Entities.SubscriptionSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("CampaignDiscountPercent")
+                        .HasColumnType("numeric")
+                        .HasColumnName("campaign_discount_percent");
+
+                    b.Property<bool>("CampaignEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("campaign_enabled");
+
+                    b.Property<decimal>("MonthlyPrice")
+                        .HasColumnType("numeric")
+                        .HasColumnName("monthly_price");
+
+                    b.Property<int>("TrialDurationDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("trial_duration_days");
+
+                    b.Property<bool>("TrialEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("trial_enabled");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<decimal>("YearlyPrice")
+                        .HasColumnType("numeric")
+                        .HasColumnName("yearly_price");
+
+                    b.HasKey("Id")
+                        .HasName("p_k_subscriptionsettings");
+
+                    b.ToTable("subscriptionsettings");
                 });
 
             modelBuilder.Entity("Hesapix.Models.Entities.User", b =>

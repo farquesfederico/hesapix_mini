@@ -21,10 +21,11 @@ public class Subscription
     public bool AutoRenew { get; set; } = true;
 
     // Payment Gateway Info
-    public string? PaymentGateway { get; set; } // "Iyzico", "GooglePlay", "AppStore"
+    public PaymentGateway? PaymentGateway { get; set; } // Enum olarak
     public string? PaymentTransactionId { get; set; }
     public string? PaymentToken { get; set; }
     public DateTime? PaymentDate { get; set; }
+    public bool WillCancelAtPeriodEnd { get; set; } = false;
 
     // Retry Mechanism
     public int PaymentRetryCount { get; set; } = 0;

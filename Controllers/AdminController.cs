@@ -1,4 +1,6 @@
-﻿using Hesapix.Data;
+﻿using AutoMapper;
+using DocumentFormat.OpenXml.InkML;
+using Hesapix.Data;
 using Hesapix.Models.Common;
 using Hesapix.Models.DTOs;
 using Hesapix.Models.Enums;
@@ -6,7 +8,6 @@ using Hesapix.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using AutoMapper;
 
 namespace Hesapix.Controllers;
 
@@ -165,29 +166,48 @@ public class AdminController : ControllerBase
 
     // Ayar Yönetimi
     [HttpGet("settings/subscription")]
-    public IActionResult GetSubscriptionSettings()
+    public async Task<IActionResult> GetSubscriptionSettings()
     {
-        var settings = _configuration.GetSection("SubscriptionSettings");
-        var result = new
-        {
-            TrialEnabled = settings.GetValue<bool>("TrialEnabled"),
-            TrialDurationDays = settings.GetValue<int>("TrialDurationDays"),
-            MonthlyPrice = settings.GetValue<decimal>("MonthlyPrice"),
-            YearlyPrice = settings.GetValue<decimal>("YearlyPrice"),
-            CampaignEnabled = settings.GetValue<bool>("CampaignEnabled"),
-            CampaignDiscountPercent = settings.GetValue<decimal>("CampaignDiscountPercent")
-        };
+        var settings = await _context.SubscriptionSettings.FirstOrDefaultAsync();
 
-        return Ok(ApiResponse<object>.SuccessResponse(result));
+        if (settings == null)
+            return NotFound(ApiResponse.ErrorResponse("Ayar bulunamadı"));
+
+        return Ok(ApiResponse<object>.SuccessResponse(new
+        {
+            settings.TrialEnabled,
+            settings.TrialDurationDays,
+            settings.MonthlyPrice,
+            settings.YearlyPrice,
+            settings.CampaignEnabled,
+            settings.CampaignDiscountPercent
+        }));
     }
 
     [HttpPut("settings/subscription")]
-    public IActionResult UpdateSubscriptionSettings([FromBody] object settings)
+    public async Task<IActionResult> UpdateSubscriptionSettings(
+    [FromBody] UpdateSubscriptionSettingsDto dto)
     {
-        // Bu endpoint için appsettings.json'ı runtime'da güncellemek gerekir
-        // Production'da bunun yerine database'de ayarlar tutulmalı
-        return Ok(ApiResponse.SuccessResponse("Ayarlar güncelleme özelliği eklenecek"));
+        var settings = await _context.SubscriptionSettings.FirstOrDefaultAsync();
+
+        if (settings == null)
+        {
+            return NotFound(ApiResponse.ErrorResponse("Abonelik ayarları bulunamadı"));
+        }
+
+        settings.TrialEnabled = dto.TrialEnabled;
+        settings.TrialDurationDays = dto.TrialDurationDays;
+        settings.MonthlyPrice = dto.MonthlyPrice;
+        settings.YearlyPrice = dto.YearlyPrice;
+        settings.CampaignEnabled = dto.CampaignEnabled;
+        settings.CampaignDiscountPercent = dto.CampaignDiscountPercent;
+        settings.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        return Ok(ApiResponse.SuccessResponse("Abonelik ayarları güncellendi"));
     }
+
 
     // Manuel İşlemler
     [HttpPost("subscriptions/{subscriptionId}/cancel")]
