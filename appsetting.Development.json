@@ -1,18 +1,97 @@
 ﻿{
     "Logging": {
         "LogLevel": {
-            "Default": "Debug",
-            "Microsoft.AspNetCore": "Information",
-            "Microsoft.EntityFrameworkCore": "Information"
+            "Default": "Information",
+            "Microsoft.AspNetCore": "Warning"
         }
     },
+    "AllowedHosts": "*",
     "ConnectionStrings": {
-        "DefaultConnection": "Host=localhost;Port=5432;Database=hesapixdb_dev;Username=postgres;Password=postgres;Include Error Detail=true"
+        "DefaultConnection": "Host=localhost;Port=5432;Database=hesapix_db;Username=postgres;Password=123456"
+    },
+    "JwtSettings": {
+        "SecretKey": "Hesapix_Super_Secret_Key_2024_Minimum_32_Characters_Required_For_Security!",
+        "Issuer": "HesapixAPI",
+        "Audience": "HesapixClient",
+        "ExpirationMinutes": 60,
+        "RefreshTokenExpirationDays": 7
+    },
+    "EmailSettings": {
+        "SmtpServer": "smtp.gmail.com",
+        "SmtpPort": 587,
+        "SenderEmail": "farquesfederico@gmail.com",
+        "SenderName": "Hesapix",
+        "Username": "farquesfederico@gmail.com",
+        "Password": "srzksgzwcixiwnpv",
+        "EnableSsl": true
     },
     "IyzicoSettings": {
-        "BaseUrl": "https://sandbox-api.iyzipay.com"
+        "ApiKey": "sandbox-j9WjqMBVotoojU3YwXHEkNEFTGImjUym",
+        "SecretKey": "sandbox-GyE5hVm5WRu74xOcIItzajuOUSB6iu08",
+        "WebhookSecret": "sandbox_webhook_secret",
+        "BaseUrl": "https://sandbox-api.iyzipay.com",
+        "MonthlyProductReferenceCode": "hesapix_monthly",
+        "YearlyProductReferenceCode": "hesapix_yearly",
+        "Currency": "TRY",
+        "Locale": "tr"
     },
+    "GooglePlay": {
+        "PackageName": "com.hesapix.app",
+        "ServiceAccountJson": "path/to/prod-service-account.json",
+        "ProductIds": {
+            "Monthly": "hesapix_monthly",
+            "Yearly": "hesapix_yearly"
+        }
+    },
+    "AppStore": {
+        "SharedSecret": "production-shared-secret",
+        "UseSandbox": true,
+        "BundleId": "com.hesapix.app",
+        "ProductIds": {
+            "Monthly": "hesapix_monthly",
+            "Yearly": "hesapix_yearly"
+        }
+    },
+    /*"SubscriptionSettings": {
+        "TrialEnabled": true,
+        "TrialDurationDays": 14,
+        "MonthlyPrice": 299.00,
+        "YearlyPrice": 2990.00,
+        "YearlyDiscountPercent": 16.67,
+        "CampaignEnabled": false,
+        "CampaignDiscountPercent": 0
+    },*/
     "RateLimitSettings": {
-        "EnableRateLimiting": false
+        "EnableRateLimiting": true,
+        "PermitLimit": 100,
+        "Window": 60,
+        "QueueLimit": 0
+    },
+    "CacheSettings": {
+        "EnableRedis": false,
+        "RedisConnectionString": "localhost:6379",
+        "DefaultExpirationMinutes": 30
+    },
+    "Serilog": {
+        "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File" ],
+        "MinimumLevel": {
+            "Default": "Information",
+            "Override": {
+                "Microsoft": "Warning",
+                "System": "Warning"
+            }
+        },
+        "WriteTo": [
+            { "Name": "Console" },
+            {
+                "Name": "File",
+                "Args": {
+                    "path": "Logs/log-.txt",
+                    "rollingInterval": "Day",
+                    "retainedFileCountLimit": 30,
+                    "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
+                }
+            }
+        ]
     }
 }

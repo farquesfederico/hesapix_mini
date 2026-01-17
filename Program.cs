@@ -23,17 +23,37 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// Database
+// Database with connection pooling
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
+{
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
-        npgsqlOptions => npgsqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 3,
-            maxRetryDelay: TimeSpan.FromSeconds(5),
-            errorCodesToAdd: null)));
+        npgsqlOptions =>
+        {
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorCodesToAdd: null);
+            npgsqlOptions.CommandTimeout(30);
+            npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory");
+        });
 
-// AutoMapper
-builder.Services.AddAutoMapper(typeof(MappingProfile));
+    // Performance optimizations
+    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+    options.EnableSensitiveDataLogging(builder.Environment.IsDevelopment());
+}, ServiceLifetime.Scoped);
+
+// Memory Cache
+builder.Services.AddMemoryCache(options =>
+{
+    options.SizeLimit = 1024; // MB
+    options.CompactionPercentage = 0.25;
+});
+
+// AutoMapper - MappingProfile ile
+builder.Services.AddAutoMapper(cfg => {
+    cfg.AddProfile<MappingProfile>();
+});
 
 // FluentValidation
 builder.Services.AddFluentValidationAutoValidation();
@@ -67,9 +87,6 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// Rate Limiting - Basit middleware ile
-// NOT: .NET 8'de RateLimiting built-in değil, custom middleware kullanacağız
-
 // CORS
 builder.Services.AddCors(options =>
 {
@@ -81,8 +98,10 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Services Registration
+// HttpClient Factory
 builder.Services.AddHttpClient();
+
+// Services Registration
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<ISaleService, SaleService>();
@@ -94,12 +113,16 @@ builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<IPdfService, PdfService>();
 builder.Services.AddScoped<IMobilePaymentService, MobilePaymentService>();
 
+// Background Services
+builder.Services.AddHostedService<SubscriptionExpirationBackgroundService>();
+
 // Controllers
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
     });
 
 // Swagger
@@ -110,7 +133,12 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "Hesapix API",
         Version = "v1",
-        Description = "Hesapix - İşletme Yönetim Sistemi API"
+        Description = "Hesapix - İşletme Yönetim Sistemi API",
+        Contact = new OpenApiContact
+        {
+            Name = "Hesapix",
+            Email = "support@hesapix.com"
+        }
     });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -164,8 +192,6 @@ app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
 
-// Rate limiting middleware kaldırıldı (isteğe bağlı eklenebilir)
-
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -194,7 +220,7 @@ using (var scope = app.Services.CreateScope())
         if (!context.Users.Any(u => u.Role == Hesapix.Models.Enums.UserRole.Admin))
         {
             Log.Information("Creating default admin user...");
-            var admin = new Hesapix.Models.Entities.User
+            var admin = new User
             {
                 Email = "admin@hesapix.com",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
@@ -207,32 +233,44 @@ using (var scope = app.Services.CreateScope())
             context.SaveChanges();
             Log.Information("Admin user created: admin@hesapix.com / Admin123!");
         }
-        if (!context.Users.Any(u => u.Role == Hesapix.Models.Enums.UserRole.User))
+
+        // Test kullanıcı
+        if (!context.Users.Any(u => u.Email == "user@hesapix.com"))
         {
             Log.Information("Creating default user...");
-            var user = new Hesapix.Models.Entities.User
+            var user = new User
             {
                 Email = "user@hesapix.com",
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
-                CompanyName = "Hesapix Admin",
+                CompanyName = "Test Company",
                 Role = Hesapix.Models.Enums.UserRole.User,
                 IsEmailVerified = true,
-                CreatedAt = DateTime.UtcNow,
-                Subscriptions = new List<Subscription>
-                {
-                    new Subscription
-                    {
-                        Status=Hesapix.Models.Enums.SubscriptionStatus.Active,
-                        StartDate=DateTime.UtcNow,
-                        EndDate=DateTime.MaxValue,
-                    }
-                }
+                CreatedAt = DateTime.UtcNow
             };
             context.Users.Add(user);
             context.SaveChanges();
-            Log.Information(" user created: user@hesapix.com / Admin123!");
+
+            // Test kullanıcıya aktif subscription
+            var subscription = new Subscription
+            {
+                UserId = user.Id,
+                PlanType = Hesapix.Models.Enums.SubscriptionPlanType.Monthly,
+                Status = Hesapix.Models.Enums.SubscriptionStatus.Active,
+                StartDate = DateTime.UtcNow,
+                EndDate = DateTime.UtcNow.AddMonths(1),
+                Price = 299,
+                FinalPrice = 299,
+                IsTrial = false,
+                AutoRenew = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.Subscriptions.Add(subscription);
+            context.SaveChanges();
+
+            Log.Information("User created: user@hesapix.com / Admin123! with active subscription");
         }
 
+        // Subscription settings
         if (!context.SubscriptionSettings.Any())
         {
             context.SubscriptionSettings.Add(new SubscriptionSettings
@@ -263,3 +301,44 @@ Log.Information("Starting Hesapix API...");
 app.Run();
 Log.Information("Hesapix API stopped");
 Log.CloseAndFlush();
+
+// Background Service for Subscription Expiration
+public class SubscriptionExpirationBackgroundService : BackgroundService
+{
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<SubscriptionExpirationBackgroundService> _logger;
+
+    public SubscriptionExpirationBackgroundService(
+        IServiceProvider serviceProvider,
+        ILogger<SubscriptionExpirationBackgroundService> logger)
+    {
+        _serviceProvider = serviceProvider;
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("Subscription Expiration Background Service started");
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var subscriptionService = scope.ServiceProvider.GetRequiredService<ISubscriptionService>();
+
+                await subscriptionService.ProcessExpiredSubscriptionsAsync();
+
+                // Her 1 saatte bir çalış
+                await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in Subscription Expiration Background Service");
+                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+            }
+        }
+
+        _logger.LogInformation("Subscription Expiration Background Service stopped");
+    }
+}

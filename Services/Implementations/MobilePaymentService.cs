@@ -1,4 +1,8 @@
-﻿using Hesapix.Services.Interfaces;
+﻿using Google.Apis.AndroidPublisher.v3;
+using Google.Apis.AndroidPublisher.v3.Data;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Services;
+using Hesapix.Services.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using System.Net.Http;
@@ -11,54 +15,72 @@ public class MobilePaymentService : IMobilePaymentService
 {
     private readonly IConfiguration _configuration;
     private readonly HttpClient _httpClient;
+    private readonly int _maxRetries = 3;
 
     public MobilePaymentService(IConfiguration configuration, IHttpClientFactory httpClientFactory)
     {
         _configuration = configuration;
         _httpClient = httpClientFactory.CreateClient();
+        _httpClient.Timeout = TimeSpan.FromSeconds(30);
     }
 
-    public async Task<(bool IsValid, string? TransactionId, decimal Amount)> ValidateGooglePlayPurchaseAsync(
-        string purchaseToken, string productId)
+    // ========================================
+    // GOOGLE PLAY
+    // ========================================
+    public async Task<(bool IsValid, string? TransactionId, decimal Amount)>
+        ValidateGooglePlayPurchaseAsync(string purchaseToken, string productId)
     {
         try
         {
-            // Google Play Developer API kullanarak doğrulama
             var packageName = _configuration["GooglePlay:PackageName"];
-            var serviceAccountJson = _configuration["GooglePlay:ServiceAccountJson"];
+            var serviceAccountKeyPath = _configuration["GooglePlay:ServiceAccountKeyPath"];
 
-            // TODO: Google.Apis.AndroidPublisher.v3 paketi ile implement edilmeli
-            // https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.subscriptions/get
-
-            var url = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/purchases/subscriptions/{productId}/tokens/{purchaseToken}";
-
-            // OAuth 2.0 token al
-            var accessToken = await GetGoogleAccessTokenAsync(serviceAccountJson);
-
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
-            var response = await _httpClient.GetAsync(url);
-
-            if (!response.IsSuccessStatusCode)
+            if (string.IsNullOrEmpty(packageName) || string.IsNullOrEmpty(serviceAccountKeyPath))
             {
-                Log.Warning("Google Play validation failed: {StatusCode}", response.StatusCode);
+                Log.Warning("Google Play configuration is missing");
                 return (false, null, 0);
             }
 
-            var content = await response.Content.ReadAsStringAsync();
-            var purchase = JsonSerializer.Deserialize<GooglePlayPurchase>(content);
+            // Service account ile authenticate
+            var credential = await GoogleCredential
+                .FromFileAsync(serviceAccountKeyPath, CancellationToken.None);
 
-            if (purchase == null || purchase.paymentState != 1) // 1 = Paid
+            var scopedCredential = credential.CreateScoped(AndroidPublisherService.Scope.Androidpublisher);
+
+            // Android Publisher API servis oluştur
+            var service = new AndroidPublisherService(new BaseClientService.Initializer
             {
+                HttpClientInitializer = scopedCredential,
+                ApplicationName = "Hesapix"
+            });
+
+            // Subscription purchase bilgisini al
+            var request = service.Purchases.Subscriptionsv2.Get(
+                packageName,
+                purchaseToken
+            );
+
+            var purchase = await request.ExecuteAsync();
+
+            // Ödeme durumunu kontrol et
+            if (purchase.SubscriptionState != "SUBSCRIPTION_STATE_ACTIVE")
+            {
+                Log.Warning("Google Play subscription is not active: {State}", purchase.SubscriptionState);
                 return (false, null, 0);
             }
 
-            // Fiyatı hesapla
+            // Transaction ID ve amount hesapla
+            var orderId = purchase.LatestOrderId;
             var amount = CalculateAmountFromProductId(productId);
 
-            Log.Information("Google Play purchase validated: {Token}", purchaseToken);
-            return (true, purchase.orderId, amount);
+            Log.Information("Google Play purchase validated successfully: {OrderId}", orderId);
+            return (true, orderId, amount);
+        }
+        catch (Google.GoogleApiException ex)
+        {
+            Log.Error(ex, "Google Play API error: {StatusCode} - {Message}",
+                ex.HttpStatusCode, ex.Message);
+            return (false, null, 0);
         }
         catch (Exception ex)
         {
@@ -67,78 +89,41 @@ public class MobilePaymentService : IMobilePaymentService
         }
     }
 
-    public async Task<(bool IsValid, string? TransactionId, decimal Amount)> ValidateAppStorePurchaseAsync(
-        string receiptData, string transactionId)
-    {
-        try
-        {
-            // Apple App Store Server API ile doğrulama
-            // https://developer.apple.com/documentation/appstorereceipts/verifyreceipt
-
-            var sharedSecret = _configuration["AppStore:SharedSecret"];
-            var useSandbox = _configuration.GetValue<bool>("AppStore:UseSandbox");
-
-            var url = useSandbox
-                ? "https://sandbox.itunes.apple.com/verifyReceipt"
-                : "https://buy.itunes.apple.com/verifyReceipt";
-
-            var requestBody = new
-            {
-                receipt_data = receiptData,
-                password = sharedSecret,
-                exclude_old_transactions = true
-            };
-
-            var jsonContent = JsonSerializer.Serialize(requestBody);
-            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(url, httpContent);
-            var content = await response.Content.ReadAsStringAsync();
-            var receipt = JsonSerializer.Deserialize<AppStoreReceipt>(content);
-
-            if (receipt == null || receipt.status != 0) // 0 = Valid
-            {
-                Log.Warning("App Store validation failed: Status {Status}", receipt?.status);
-                return (false, null, 0);
-            }
-
-            // Transaction'ı bul
-            var transaction = receipt.latest_receipt_info?.FirstOrDefault(t => t.transaction_id == transactionId);
-
-            if (transaction == null)
-            {
-                return (false, null, 0);
-            }
-
-            // Fiyatı hesapla
-            var amount = CalculateAmountFromProductId(transaction.product_id);
-
-            Log.Information("App Store purchase validated: {TransactionId}", transactionId);
-            return (true, transactionId, amount);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "App Store validation error");
-            return (false, null, 0);
-        }
-    }
-
     public async Task<bool> AcknowledgeGooglePlayPurchaseAsync(string purchaseToken)
     {
         try
         {
-            // Google Play'de satın alma onayı
             var packageName = _configuration["GooglePlay:PackageName"];
-            var serviceAccountJson = _configuration["GooglePlay:ServiceAccountJson"];
-            var accessToken = await GetGoogleAccessTokenAsync(serviceAccountJson);
+            var serviceAccountKeyPath = _configuration["GooglePlay:ServiceAccountKeyPath"];
+            var productId = _configuration["GooglePlay:MonthlyProductId"]; // veya YearlyProductId
 
-            var url = $"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{packageName}/purchases/products/tokens/{purchaseToken}:acknowledge";
+            var credential = await GoogleCredential
+                .FromFileAsync(serviceAccountKeyPath, CancellationToken.None);
 
-            _httpClient.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            var scopedCredential = credential.CreateScoped(AndroidPublisherService.Scope.Androidpublisher);
 
-            var response = await _httpClient.PostAsync(url, null);
-            return response.IsSuccessStatusCode;
+            var service = new AndroidPublisherService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = scopedCredential,
+                ApplicationName = "Hesapix"
+            });
+
+            // Acknowledge request body oluştur
+            var acknowledgeRequest = new SubscriptionPurchasesAcknowledgeRequest
+            {
+                DeveloperPayload = "Hesapix subscription"
+            };
+
+            // Acknowledge isteği gönder
+            await service.Purchases.Subscriptions.Acknowledge(
+                acknowledgeRequest,
+                packageName,
+                productId,
+                purchaseToken
+            ).ExecuteAsync();
+
+            Log.Information("Google Play purchase acknowledged: {Token}", purchaseToken);
+            return true;
         }
         catch (Exception ex)
         {
@@ -151,9 +136,29 @@ public class MobilePaymentService : IMobilePaymentService
     {
         try
         {
-            // İade işlemi
-            // TODO: Implement refund logic
-            await Task.CompletedTask;
+            var packageName = _configuration["GooglePlay:PackageName"];
+            var serviceAccountKeyPath = _configuration["GooglePlay:ServiceAccountKeyPath"];
+            var productId = _configuration["GooglePlay:MonthlyProductId"];
+
+            var credential = await GoogleCredential
+                .FromFileAsync(serviceAccountKeyPath, CancellationToken.None);
+
+            var scopedCredential = credential.CreateScoped(AndroidPublisherService.Scope.Androidpublisher);
+
+            var service = new AndroidPublisherService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = scopedCredential,
+                ApplicationName = "Hesapix"
+            });
+
+            // Refund request
+            await service.Purchases.Subscriptions.Refund(
+                packageName,
+                productId,
+                purchaseToken
+            ).ExecuteAsync();
+
+            Log.Information("Google Play purchase refunded: {Token}", purchaseToken);
             return true;
         }
         catch (Exception ex)
@@ -163,43 +168,197 @@ public class MobilePaymentService : IMobilePaymentService
         }
     }
 
-    private async Task<string> GetGoogleAccessTokenAsync(string serviceAccountJson)
+    // ========================================
+    // APP STORE
+    // ========================================
+    public async Task<(bool IsValid, string? TransactionId, decimal Amount)>
+        ValidateAppStorePurchaseAsync(string receiptData, string transactionId)
     {
-        // TODO: Google OAuth 2.0 ile access token al
-        // Google.Apis.Auth paketi kullanılmalı
-        await Task.CompletedTask;
-        return "mock-access-token";
+        try
+        {
+            var sharedSecret = _configuration["AppStore:SharedSecret"];
+            var useSandbox = _configuration.GetValue<bool>("AppStore:UseSandbox");
+
+            if (string.IsNullOrEmpty(sharedSecret))
+            {
+                Log.Warning("App Store configuration is missing");
+                return (false, null, 0);
+            }
+
+            // İlk olarak production'da dene
+            var (isValid, receipt) = await VerifyAppStoreReceiptAsync(
+                receiptData,
+                sharedSecret,
+                false
+            );
+
+            // Production başarısız olursa ve sandbox aktifse sandbox'da dene
+            if (!isValid && useSandbox)
+            {
+                (isValid, receipt) = await VerifyAppStoreReceiptAsync(
+                    receiptData,
+                    sharedSecret,
+                    true
+                );
+            }
+
+            if (!isValid || receipt == null)
+            {
+                return (false, null, 0);
+            }
+
+            // Transaction'ı bul
+            var transaction = receipt.latest_receipt_info?
+                .FirstOrDefault(t => t.transaction_id == transactionId);
+
+            if (transaction == null)
+            {
+                Log.Warning("App Store transaction not found: {TransactionId}", transactionId);
+                return (false, null, 0);
+            }
+
+            // Subscription'ın aktif olduğunu doğrula
+            if (!string.IsNullOrEmpty(transaction.expires_date_ms))
+            {
+                var expiresDate = DateTimeOffset
+                    .FromUnixTimeMilliseconds(long.Parse(transaction.expires_date_ms))
+                    .DateTime;
+
+                if (expiresDate < DateTime.UtcNow)
+                {
+                    Log.Warning("App Store subscription expired: {TransactionId}", transactionId);
+                    return (false, null, 0);
+                }
+            }
+
+            var amount = CalculateAmountFromProductId(transaction.product_id);
+
+            Log.Information("App Store purchase validated: {TransactionId}", transactionId);
+            return (true, transactionId, amount);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "App Store validation error");
+            return (false, null, 0);
+        }
     }
 
+    private async Task<(bool IsValid, AppStoreReceipt? Receipt)>
+        VerifyAppStoreReceiptAsync(string receiptData, string sharedSecret, bool useSandbox)
+    {
+        for (int attempt = 0; attempt < _maxRetries; attempt++)
+        {
+            try
+            {
+                var url = useSandbox
+                    ? "https://sandbox.itunes.apple.com/verifyReceipt"
+                    : "https://buy.itunes.apple.com/verifyReceipt";
+
+                var requestBody = new
+                {
+                    receipt_data = receiptData,
+                    password = sharedSecret,
+                    exclude_old_transactions = true
+                };
+
+                var jsonContent = JsonSerializer.Serialize(requestBody);
+                var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync(url, httpContent);
+                var content = await response.Content.ReadAsStringAsync();
+                var receipt = JsonSerializer.Deserialize<AppStoreReceipt>(content);
+
+                if (receipt == null)
+                {
+                    return (false, null);
+                }
+
+                // Status code kontrolü
+                if (receipt.status == 0)
+                {
+                    return (true, receipt);
+                }
+                else if (receipt.status == 21007 && !useSandbox)
+                {
+                    // Production'a sandbox receipt gönderilmiş, sandbox'da tekrar dene
+                    return await VerifyAppStoreReceiptAsync(receiptData, sharedSecret, true);
+                }
+                else if (receipt.status == 21008 && useSandbox)
+                {
+                    // Sandbox'a production receipt gönderilmiş, production'da tekrar dene
+                    return await VerifyAppStoreReceiptAsync(receiptData, sharedSecret, false);
+                }
+
+                Log.Warning("App Store validation failed: Status {Status}", receipt.status);
+                return (false, null);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "App Store verification attempt {Attempt} failed", attempt + 1);
+                if (attempt < _maxRetries - 1)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt))); // Exponential backoff
+                }
+            }
+        }
+
+        return (false, null);
+    }
+
+    // ========================================
+    // HELPER METHODS
+    // ========================================
     private decimal CalculateAmountFromProductId(string productId)
     {
-        // Product ID'den fiyat hesapla
-        return productId switch
+        var monthlyProductIds = new[]
         {
-            "hesapix_monthly" => 299.00m,
-            "hesapix_yearly" => 2990.00m,
-            _ => 0m
+            _configuration["GooglePlay:MonthlyProductId"],
+            _configuration["AppStore:MonthlyProductId"],
+            "hesapix_monthly"
         };
+
+        var yearlyProductIds = new[]
+        {
+            _configuration["GooglePlay:YearlyProductId"],
+            _configuration["AppStore:YearlyProductId"],
+            "hesapix_yearly"
+        };
+
+        if (monthlyProductIds.Contains(productId))
+            return 299.00m;
+
+        if (yearlyProductIds.Contains(productId))
+            return 2990.00m;
+
+        Log.Warning("Unknown product ID: {ProductId}", productId);
+        return 0m;
     }
 
-    // Helper classes
-    private class GooglePlayPurchase
-    {
-        public int paymentState { get; set; }
-        public string orderId { get; set; } = string.Empty;
-        public long expiryTimeMillis { get; set; }
-    }
-
+    // ========================================
+    // HELPER CLASSES
+    // ========================================
     private class AppStoreReceipt
     {
         public int status { get; set; }
+        public string? environment { get; set; }
         public List<AppStoreTransaction>? latest_receipt_info { get; set; }
+        public AppStorePendingRenewalInfo? pending_renewal_info { get; set; }
     }
 
     private class AppStoreTransaction
     {
         public string transaction_id { get; set; } = string.Empty;
+        public string original_transaction_id { get; set; } = string.Empty;
         public string product_id { get; set; } = string.Empty;
-        public string expires_date { get; set; } = string.Empty;
+        public string purchase_date_ms { get; set; } = string.Empty;
+        public string expires_date_ms { get; set; } = string.Empty;
+        public string? cancellation_date_ms { get; set; }
+        public string? is_trial_period { get; set; }
+    }
+
+    private class AppStorePendingRenewalInfo
+    {
+        public string auto_renew_status { get; set; } = string.Empty;
+        public string? auto_renew_product_id { get; set; }
     }
 }

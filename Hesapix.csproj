@@ -8,28 +8,54 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<!-- AutoMapper - Aynı versiyonlar -->
 		<PackageReference Include="AutoMapper" Version="12.0.1" />
 		<PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+
+		<!-- Security -->
 		<PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
-		<PackageReference Include="ClosedXML" Version="0.102.2" />
-		<PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
-		<PackageReference Include="Iyzipay" Version="2.1.39" />
-		<PackageReference Include="MailKit" Version="4.3.0" />
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+
+		<!-- Database -->
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0" />
-		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.0" />
-		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="QuestPDF" Version="2023.12.5" />
-		<PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
-		<PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
-		<PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
-		<PackageReference Include="StackExchange.Redis" Version="2.7.10" />
-		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+
+		<!-- Validation -->
+		<PackageReference Include="FluentValidation.AspNetCore" Version="11.3.0" />
+
+		<!-- Payment Gateways -->
+		<PackageReference Include="Iyzipay" Version="2.1.39" />
+		<PackageReference Include="Google.Apis.AndroidPublisher.v3" Version="1.68.0.3654" />
+		<PackageReference Include="Google.Apis.Auth" Version="1.68.0" />
+
+		<!-- Email -->
+		<PackageReference Include="MailKit" Version="4.7.1" />
+
+		<!-- Logging -->
+		<PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+		<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+		<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+
+		<!-- Export -->
+		<PackageReference Include="ClosedXML" Version="0.102.3" />
+		<PackageReference Include="QuestPDF" Version="2024.12.3" />
+
+		<!-- Cache -->
+		<PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+
+		<!-- Health Checks -->
+		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.0" />
+
+		<!-- API Documentation -->
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.8.1" />
 	</ItemGroup>
 
 </Project>

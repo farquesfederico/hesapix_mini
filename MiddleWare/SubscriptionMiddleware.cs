@@ -1,5 +1,6 @@
 ﻿using Hesapix.Models.Common;
 using Hesapix.Services.Interfaces;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -8,23 +9,29 @@ namespace Hesapix.Middleware;
 public class SubscriptionMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly string[] _excludedPaths =
+    private readonly IMemoryCache _cache;
+    private static readonly string[] ExcludedPaths =
     {
         "/api/auth/register",
         "/api/auth/login",
         "/api/auth/verify-email",
         "/api/auth/forgot-password",
         "/api/auth/reset-password",
-        "/api/subscription/create",
+        "/api/auth/refresh-token",
+        "/api/subscription/initiate-payment",
         "/api/subscription/status",
+        "/api/subscription/plans",
         "/api/subscription/webhook",
+        "/api/subscription/callback",
+        "/api/subscription/activate-trial",
         "/health",
         "/swagger"
     };
 
-    public SubscriptionMiddleware(RequestDelegate next)
+    public SubscriptionMiddleware(RequestDelegate next, IMemoryCache cache)
     {
         _next = next;
+        _cache = cache;
     }
 
     public async Task InvokeAsync(HttpContext context, ISubscriptionService subscriptionService)
@@ -32,13 +39,29 @@ public class SubscriptionMiddleware
         var path = context.Request.Path.Value?.ToLower() ?? "";
 
         // Excluded paths kontrolü
-        if (_excludedPaths.Any(p => path.StartsWith(p.ToLower())))
+        if (ExcludedPaths.Any(p => path.StartsWith(p.ToLower())))
         {
             await _next(context);
             return;
         }
 
-        // Admin kontrolü - adminleri subscription kontrolünden muaf tut
+        // Static files ve swagger
+        if (path.StartsWith("/swagger") ||
+            path.Contains(".") ||
+            path == "/")
+        {
+            await _next(context);
+            return;
+        }
+
+        // Authentication kontrolü
+        if (!context.User.Identity?.IsAuthenticated ?? true)
+        {
+            await _next(context);
+            return;
+        }
+
+        // Admin kontrolü - adminler subscription kontrolünden muaf
         var roleClaim = context.User.FindFirst(ClaimTypes.Role)?.Value;
         if (roleClaim == "Admin")
         {
@@ -54,8 +77,18 @@ public class SubscriptionMiddleware
             return;
         }
 
-        // Subscription kontrolü
-        var hasActiveSubscription = await subscriptionService.HasActiveSubscriptionAsync(userId);
+        // Cache kontrolü - 5 dakika cache
+        var cacheKey = $"subscription_active_{userId}";
+        if (!_cache.TryGetValue(cacheKey, out bool hasActiveSubscription))
+        {
+            hasActiveSubscription = await subscriptionService.HasActiveSubscriptionAsync(userId);
+
+            // Cache'e kaydet - sadece aktif subscription durumlarını cache'le
+            if (hasActiveSubscription)
+            {
+                _cache.Set(cacheKey, hasActiveSubscription, TimeSpan.FromMinutes(5));
+            }
+        }
 
         if (!hasActiveSubscription)
         {
@@ -69,7 +102,8 @@ public class SubscriptionMiddleware
 
             var options = new JsonSerializerOptions
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
             };
 
             await context.Response.WriteAsync(JsonSerializer.Serialize(response, options));

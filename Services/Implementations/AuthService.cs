@@ -60,7 +60,9 @@ public class AuthService : IAuthService
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        var verificationLink = $"{_configuration["AppSettings:FrontendUrl"]}/verify-email?token={user.EmailVerificationToken}";
+        var baseUrl = _configuration["AppSettings:BaseUrl"] ?? "https://localhost:5001";
+        var verificationLink = $"{baseUrl}/verify-email?token={user.EmailVerificationToken}";
+        // var verificationLink = $"{_configuration["AppSettings:FrontendUrl"]}/verify-email?token={user.EmailVerificationToken}";
         await _emailService.SendVerificationEmailAsync(user.Email, verificationLink);
 
         return (true, "Kayıt başarılı. Lütfen email adresinizi doğrulayın.", null);
